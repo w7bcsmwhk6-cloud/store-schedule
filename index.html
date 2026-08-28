@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
+  <!-- version: leave-count-fix-2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -249,8 +250,12 @@ function isoFromParts(y,m,d){ return `${y}-${String(m).padStart(2,'0')}-${String
 
 function isDayOffType(id){
   const et=findById(masters.event_types,id);
-  const name=labelOf(et);
+  const name=labelOf(et).trim();
   return name==='公休' || name==='有給';
+}
+
+function isNormalSchedule(s){
+  return !isDayOffType(s.event_type_id);
 }
 
 function updateDayOffFields(){
@@ -348,11 +353,11 @@ function renderCalendar(){
   const counts={};
   const dayOffs={};
 
-  monthSchedules.forEach(s=>{
-    if(!isDayOffType(s.event_type_id)){
-      counts[s.event_date]=(counts[s.event_date]||0)+1;
-    }
+  monthSchedules.filter(isNormalSchedule).forEach(s=>{
+    counts[s.event_date]=(counts[s.event_date]||0)+1;
+  });
 
+  monthSchedules.forEach(s=>{
     if(isDayOffType(s.event_type_id)){
       const member=findById(masters.members,s.member_id);
       const et=findById(masters.event_types,s.event_type_id);
@@ -422,7 +427,7 @@ function selectedSchedules(){
 function renderSelectedDay(){
   const schedules=selectedSchedules();
   $('dateTitle').textContent = selectedDate.replaceAll('-','/')+' の予定';
-  const normalSchedules=schedules.filter(s=>!isDayOffType(s.event_type_id));
+  const normalSchedules=schedules.filter(isNormalSchedule);
   $('countAll').textContent=normalSchedules.length;
 
   let sales=0, loan=0;
