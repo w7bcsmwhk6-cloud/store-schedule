@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>店舗スケジュール</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root{
+      --bg:#f3f5f8; --card:#fff; --text:#111827; --muted:#6b7280; --line:#e5e7eb;
+      --accent:#2563eb; --danger:#dc2626; --shadow:0 8px 28px rgba(15,23,42,.08);
+      --today:#dbeafe; --selected:#2563eb;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    button,input,select,textarea{font:inherit}
+    .wrap{max-width:980px;margin:0 auto;padding:16px 14px 96px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+    h1{font-size:24px;margin:0}
+    .small{font-size:13px;color:var(--muted)}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:16px}
+    .hidden{display:none!important}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .grow{flex:1}
+    input,select,textarea{width:100%;border:1px solid #d1d5db;border-radius:12px;padding:11px 12px;background:white;color:var(--text)}
+    textarea{min-height:76px;resize:vertical}
+    label{display:block;font-size:12px;color:var(--muted);margin:0 0 5px}
+    .field{margin-bottom:11px}
+    button{border:0;border-radius:12px;padding:11px 14px;background:var(--accent);color:white;font-weight:700;cursor:pointer}
+    button.secondary{background:#eef2ff;color:#1e40af}
+    button.ghost{background:#f3f4f6;color:#374151}
+    button.danger{background:#fee2e2;color:#991b1b}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    .login{max-width:430px;margin:8vh auto 0}
+    .status{margin-top:10px;font-size:13px;color:var(--muted);white-space:pre-wrap}
+    .error{color:#b91c1c}
+
+    .month-card{margin-bottom:12px}
+    .month-head{display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;margin-bottom:10px}
+    .month-title{text-align:center;font-size:20px;font-weight:800}
+    .month-nav{min-width:44px;padding:10px 12px}
+    .weekdays,.calendar{display:grid;grid-template-columns:repeat(7,1fr)}
+    .weekdays div{text-align:center;font-size:12px;color:var(--muted);padding:6px 0;font-weight:700}
+    .day{
+      min-height:62px;border:1px solid var(--line);background:#fff;padding:6px 4px;
+      display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;
+      color:var(--text);font-weight:600;border-radius:0
+    }
+    .day:nth-child(7n+1){color:#dc2626}
+    .day:nth-child(7n){color:#2563eb}
+    .day.outside{opacity:.28}
+    .day.today{background:var(--today)}
+    .day.selected{background:var(--selected);color:#fff}
+    .day.selected .count{background:#fff;color:var(--selected)}
+    .daynum{font-size:15px;line-height:1}
+    .count{
+      min-width:22px;height:22px;border-radius:999px;padding:0 6px;
+      display:flex;align-items:center;justify-content:center;background:#eef2ff;color:#3730a3;
+      font-size:11px;font-weight:800
+    }
+
+    .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+    .stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}
+    .stat b{font-size:20px;display:block}
+    .list{display:flex;flex-direction:column;gap:10px}
+    .event{background:#fff;border:1px solid var(--line);border-radius:16px;padding:13px;border-left:6px solid #64748b}
+    .event-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+    .time{font-weight:800;font-size:17px}
+    .badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:700}
+    .meta{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.6}
+    .empty{text-align:center;color:var(--muted);padding:34px 12px}
+    .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+    .tab{background:#fff;color:#374151;border:1px solid var(--line);padding:11px 8px}
+    .tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .staff-grid,.loaner-grid{display:grid;gap:10px}
+    .staff-card,.loaner-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}
+    .staff-head,.loaner-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px}
+    .staff-name,.loaner-name{font-weight:800;font-size:16px}
+    .mini-list{display:flex;flex-direction:column;gap:7px}
+    .mini-event{border-left:4px solid #64748b;padding:8px 9px;background:#f9fafb;border-radius:10px;font-size:13px}
+    .mini-time{font-weight:800}
+    .available{color:#15803d;font-weight:800}
+    .inuse{color:#b91c1c;font-weight:800}
+    .fab{position:fixed;right:18px;bottom:22px;width:58px;height:58px;border-radius:50%;font-size:30px;line-height:1;background:var(--accent);box-shadow:0 10px 24px rgba(37,99,235,.35)}
+    dialog{border:0;border-radius:20px;padding:0;width:min(94vw,560px);box-shadow:0 24px 70px rgba(0,0,0,.28)}
+    dialog::backdrop{background:rgba(15,23,42,.48)}
+    .modal{padding:18px}
+    .modal h2{margin:0 0 14px;font-size:20px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}
+
+    @media(max-width:560px){
+      .wrap{padding:12px 10px 94px}
+      .stats{grid-template-columns:1fr 1fr}
+      .stats .stat:last-child{grid-column:1/-1}
+      .grid2{grid-template-columns:1fr}
+      h1{font-size:22px}
+      .month-head{grid-template-columns:auto 1fr auto}
+      .month-head #todayBtn{grid-column:1/-1}
+      .day{min-height:56px;padding:5px 2px}
+      .daynum{font-size:14px}
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <section id="loginView" class="login card">
+    <h1>店舗スケジュール</h1>
+    <p class="small">スタッフ用ログイン</p>
+    <div class="field"><label>メールアドレス</label><input id="email" type="email" autocomplete="username"></div>
+    <div class="field"><label>パスワード</label><input id="password" type="password" autocomplete="current-password"></div>
+    <button id="loginBtn" style="width:100%">ログイン</button>
+    <div id="loginStatus" class="status"></div>
+  </section>
+
+  <main id="appView" class="hidden">
+    <header>
+      <div>
+        <h1>店舗スケジュール</h1>
+        <div id="userLabel" class="small"></div>
+      </div>
+      <button id="logoutBtn" class="ghost">ログアウト</button>
+    </header>
+
+    <section class="card month-card">
+      <div class="month-head">
+        <button id="prevMonthBtn" class="ghost month-nav">‹</button>
+        <div id="monthTitle" class="month-title"></div>
+        <button id="nextMonthBtn" class="ghost month-nav">›</button>
+        <button id="todayBtn" class="secondary">今日</button>
+      </div>
+      <div class="weekdays">
+        <div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div>
+      </div>
+      <div id="calendar" class="calendar"></div>
+    </section>
+
+    <section class="stats">
+      <div class="stat"><span class="small">予定</span><b id="countAll">0</b></div>
+      <div class="stat"><span class="small">試乗・商談</span><b id="countSales">0</b></div>
+      <div class="stat"><span class="small">代車使用</span><b id="countLoaner">0</b></div>
+    </section>
+
+    <section class="tabs">
+      <button type="button" class="tab active" data-view="day">日別</button>
+      <button type="button" class="tab" data-view="staff">スタッフ別</button>
+      <button type="button" class="tab" data-view="loaner">代車</button>
+    </section>
+
+    <section id="dayView" class="card">
+      <div class="row" style="margin-bottom:10px">
+        <strong class="grow" id="dateTitle">予定</strong>
+        <button id="refreshBtn" class="ghost">更新</button>
+      </div>
+      <div id="scheduleList" class="list"></div>
+    </section>
+
+    <section id="staffView" class="card hidden">
+      <div class="row" style="margin-bottom:10px">
+        <strong class="grow" id="staffDateTitle">スタッフ別</strong>
+      </div>
+      <div id="staffList" class="staff-grid"></div>
+    </section>
+
+    <section id="loanerView" class="card hidden">
+      <div class="row" style="margin-bottom:10px">
+        <strong class="grow" id="loanerDateTitle">代車状況</strong>
+      </div>
+      <div id="loanerList" class="loaner-grid"></div>
+    </section>
+
+    <button id="addBtn" class="fab" aria-label="予定を追加">＋</button>
+  </main>
+</div>
+
+<dialog id="scheduleDialog">
+  <form id="scheduleForm" class="modal" method="dialog">
+    <h2 id="dialogTitle">予定を追加</h2>
+    <input type="hidden" id="scheduleId">
+
+    <div class="grid2">
+      <div class="field"><label>日付</label><input id="eventDate" type="date" required></div>
+      <div class="field"><label>担当者</label><select id="memberId" required></select></div>
+    </div>
+
+    <div class="grid2">
+      <div class="field"><label>開始</label><input id="startTime" type="time" required></div>
+      <div class="field"><label>終了</label><input id="endTime" type="time"></div>
+    </div>
+
+    <div class="field"><label>予定種類</label><select id="eventTypeId" required></select></div>
+    <div class="field"><label>お客様名</label><input id="customerName" type="text" placeholder="任意"></div>
+
+    <div class="grid2">
+      <div class="field"><label>車種</label><select id="vehicleId"></select></div>
+      <div class="field"><label>代車</label><select id="loanerId"></select></div>
+    </div>
+
+    <div class="field"><label>メモ</label><textarea id="memo" placeholder="任意"></textarea></div>
+    <div id="formStatus" class="status"></div>
+
+    <div class="actions">
+      <button type="button" id="deleteBtn" class="danger hidden">削除</button>
+      <button type="button" id="cancelBtn" class="ghost">キャンセル</button>
+      <button type="submit" id="saveBtn">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const SUPABASE_URL = 'https://zksmpofpyiozjpngleia.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_UvrJAAg0jGTsxPTipz4fww_6a_tlERN';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let masters = { members:[], event_types:[], vehicles:[], loaners:[] };
+let monthSchedules = [];
+let selectedDate = localDateISO();
+let visibleMonth = new Date(selectedDate + 'T00:00:00');
+visibleMonth.setDate(1);
+
+const $ = id => document.getElementById(id);
+const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog');
+
+function localDateISO(d=new Date()){
+  const x=new Date(d.getTime()-d.getTimezoneOffset()*60000);
+  return x.toISOString().slice(0,10);
+}
+function labelOf(row, fall=''){
+  if(!row) return fall;
+  return row.name ?? row.display_name ?? row.full_name ?? row.label ?? row.title ?? row.model ?? fall;
+}
+function colorOf(row){ return row?.color ?? row?.hex_color ?? row?.color_code ?? '#64748b'; }
+function timeText(v){ return v ? String(v).slice(0,5) : ''; }
+function esc(v=''){ return String(v).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+function findById(arr,id){ return arr.find(x=>String(x.id)===String(id)); }
+function isoFromParts(y,m,d){ return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+
+async function boot(){
+  const { data:{session} } = await sb.auth.getSession();
+  if(session) enterApp(session); else showLogin();
+}
+function showLogin(){ loginView.classList.remove('hidden'); appView.classList.add('hidden'); }
+async function enterApp(session){
+  loginView.classList.add('hidden'); appView.classList.remove('hidden');
+  $('userLabel').textContent = session.user.email || '';
+  await loadMasters();
+  await loadMonth();
+}
+async function login(){
+  $('loginStatus').textContent='ログイン中…'; $('loginBtn').disabled=true;
+  const {data,error}=await sb.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});
+  $('loginBtn').disabled=false;
+  if(error){ $('loginStatus').textContent='ログインできません：'+error.message; $('loginStatus').className='status error'; return; }
+  $('loginStatus').textContent=''; await enterApp(data.session);
+}
+async function logout(){ await sb.auth.signOut(); showLogin(); }
+
+async function loadMasters(){
+  const names=['members','event_types','vehicles','loaners'];
+  for(const name of names){
+    const {data,error}=await sb.from(name).select('*').order('id',{ascending:true});
+    masters[name]=error?[]:(data||[]);
+    if(error) console.error(name,error);
+  }
+  fillSelect('memberId',masters.members,'担当者を選択');
+  fillSelect('eventTypeId',masters.event_types,'種類を選択');
+  fillSelect('vehicleId',masters.vehicles,'車種なし');
+  fillSelect('loanerId',masters.loaners,'代車なし');
+}
+function fillSelect(id,arr,placeholder){
+  const el=$(id);
+  el.innerHTML=`<option value="">${esc(placeholder)}</option>`+
+    arr.map(x=>`<option value="${esc(x.id)}">${esc(labelOf(x,'ID '+x.id))}</option>`).join('');
+}
+
+function monthRange(){
+  const y=visibleMonth.getFullYear(), m=visibleMonth.getMonth();
+  const start=isoFromParts(y,m+1,1);
+  const last=new Date(y,m+1,0).getDate();
+  const end=isoFromParts(y,m+1,last);
+  return {start,end};
+}
+async function loadMonth(){
+  $('scheduleList').innerHTML='<div class="empty">読み込み中…</div>';
+  const {start,end}=monthRange();
+  const {data,error}=await sb.from('schedules')
+    .select('*')
+    .gte('event_date',start)
+    .lte('event_date',end)
+    .order('event_date',{ascending:true})
+    .order('start_time',{ascending:true});
+  if(error){
+    monthSchedules=[];
+    $('scheduleList').innerHTML=`<div class="empty error">読み込みエラー<br>${esc(error.message)}</div>`;
+  } else {
+    monthSchedules=data||[];
+  }
+  renderCalendar();
+  renderSelectedDay();
+  renderStaffView();
+  renderLoanerView();
+}
+
+function renderCalendar(){
+  const y=visibleMonth.getFullYear(), m=visibleMonth.getMonth();
+  $('monthTitle').textContent=`${y}年 ${m+1}月`;
+  const firstWeekday=new Date(y,m,1).getDay();
+  const daysInMonth=new Date(y,m+1,0).getDate();
+  const prevLast=new Date(y,m,0).getDate();
+  const today=localDateISO();
+
+  const counts={};
+  monthSchedules.forEach(s=>counts[s.event_date]=(counts[s.event_date]||0)+1);
+
+  let html='';
+  for(let i=0;i<42;i++){
+    let day, cellMonth=m, cellYear=y, outside=false;
+    if(i<firstWeekday){
+      day=prevLast-firstWeekday+i+1;
+      cellMonth=m-1; outside=true;
+    }else if(i>=firstWeekday+daysInMonth){
+      day=i-(firstWeekday+daysInMonth)+1;
+      cellMonth=m+1; outside=true;
+    }else{
+      day=i-firstWeekday+1;
+    }
+    if(cellMonth<0){cellMonth=11;cellYear--}
+    if(cellMonth>11){cellMonth=0;cellYear++}
+    const iso=isoFromParts(cellYear,cellMonth+1,day);
+    const classes=['day'];
+    if(outside) classes.push('outside');
+    if(iso===today) classes.push('today');
+    if(iso===selectedDate) classes.push('selected');
+    const count=counts[iso]||0;
+    html+=`<button type="button" class="${classes.join(' ')}" data-date="${iso}">
+      <span class="daynum">${day}</span>
+      ${count?`<span class="count">${count}</span>`:''}
+    </button>`;
+  }
+  $('calendar').innerHTML=html;
+  document.querySelectorAll('.day').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      selectedDate=btn.dataset.date;
+      const d=new Date(selectedDate+'T00:00:00');
+      if(d.getMonth()!==visibleMonth.getMonth() || d.getFullYear()!==visibleMonth.getFullYear()){
+        visibleMonth=new Date(d.getFullYear(),d.getMonth(),1);
+        loadMonth();
+      } else {
+        renderCalendar();
+        renderSelectedDay();
+        renderStaffView();
+        renderLoanerView();
+      }
+    });
+  });
+}
+
+function selectedSchedules(){
+  return monthSchedules.filter(s=>s.event_date===selectedDate);
+}
+function renderSelectedDay(){
+  const schedules=selectedSchedules();
+  $('dateTitle').textContent = selectedDate.replaceAll('-','/')+' の予定';
+  $('countAll').textContent=schedules.length;
+
+  let sales=0, loan=0;
+  for(const s of schedules){
+    const et=labelOf(findById(masters.event_types,s.event_type_id));
+    if(et.includes('試乗')||et.includes('商談')) sales++;
+    if(s.loaner_id) loan++;
+  }
+  $('countSales').textContent=sales;
+  $('countLoaner').textContent=loan;
+
+  if(!schedules.length){
+    $('scheduleList').innerHTML='<div class="empty">この日の予定はありません</div>';
+    return;
+  }
+
+  $('scheduleList').innerHTML=schedules.map(s=>{
+    const et=findById(masters.event_types,s.event_type_id);
+    const member=findById(masters.members,s.member_id);
+    const vehicle=findById(masters.vehicles,s.vehicle_id);
+    const loaner=findById(masters.loaners,s.loaner_id);
+    const meta=[
+      labelOf(member) ? '担当：'+labelOf(member) : '',
+      labelOf(vehicle) ? '車種：'+labelOf(vehicle) : '',
+      labelOf(loaner) ? '代車：'+labelOf(loaner) : '',
+      s.customer_name ? 'お客様：'+s.customer_name : '',
+      s.memo ? 'メモ：'+s.memo : ''
+    ].filter(Boolean).map(esc).join('<br>');
+
+    return `<article class="event" style="border-left-color:${esc(colorOf(et))}" data-id="${esc(s.id)}">
+      <div class="event-top">
+        <div>
+          <div class="time">${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</div>
+          <span class="badge">${esc(labelOf(et,'予定'))}</span>
+        </div>
+        <button class="ghost editBtn" type="button">編集</button>
+      </div>
+      <div class="meta">${meta||'詳細なし'}</div>
+    </article>`;
+  }).join('');
+
+  document.querySelectorAll('.event').forEach(el=>{
+    el.querySelector('.editBtn').addEventListener('click',()=>openEdit(el.dataset.id));
+  });
+}
+
+
+function renderStaffView(){
+  const schedules=selectedSchedules();
+  $('staffDateTitle').textContent=selectedDate.replaceAll('-','/')+' スタッフ別';
+  if(!masters.members.length){
+    $('staffList').innerHTML='<div class="empty">スタッフが登録されていません</div>';
+    return;
+  }
+  $('staffList').innerHTML=masters.members.map(member=>{
+    const items=schedules.filter(s=>String(s.member_id)===String(member.id));
+    const body=items.length ? items.map(s=>{
+      const et=findById(masters.event_types,s.event_type_id);
+      const vehicle=findById(masters.vehicles,s.vehicle_id);
+      return `<div class="mini-event" style="border-left-color:${esc(colorOf(et))}">
+        <div class="mini-time">${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</div>
+        <div>${esc(labelOf(et,'予定'))}${vehicle?' / '+esc(labelOf(vehicle)):''}${s.customer_name?' / '+esc(s.customer_name):''}</div>
+      </div>`;
+    }).join('') : '<div class="small">予定なし</div>';
+    return `<div class="staff-card">
+      <div class="staff-head">
+        <div class="staff-name">${esc(labelOf(member,'スタッフ'))}</div>
+        <div class="small">${items.length}件</div>
+      </div>
+      <div class="mini-list">${body}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderLoanerView(){
+  const schedules=selectedSchedules();
+  $('loanerDateTitle').textContent=selectedDate.replaceAll('-','/')+' 代車状況';
+  if(!masters.loaners.length){
+    $('loanerList').innerHTML='<div class="empty">代車が登録されていません</div>';
+    return;
+  }
+  $('loanerList').innerHTML=masters.loaners.map(loaner=>{
+    const items=schedules.filter(s=>String(s.loaner_id)===String(loaner.id));
+    const status=items.length
+      ? `<span class="inuse">使用 ${items.length}件</span>`
+      : `<span class="available">空き</span>`;
+    const body=items.length ? items.map(s=>{
+      const member=findById(masters.members,s.member_id);
+      const vehicle=findById(masters.vehicles,s.vehicle_id);
+      return `<div class="mini-event">
+        <div class="mini-time">${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</div>
+        <div>${member?esc(labelOf(member)):''}${vehicle?' / '+esc(labelOf(vehicle)):''}${s.customer_name?' / '+esc(s.customer_name):''}</div>
+      </div>`;
+    }).join('') : '<div class="small">この日の予約はありません</div>';
+    return `<div class="loaner-card">
+      <div class="loaner-head">
+        <div class="loaner-name">${esc(labelOf(loaner,'代車'))}</div>
+        <div>${status}</div>
+      </div>
+      <div class="mini-list">${body}</div>
+    </div>`;
+  }).join('');
+}
+
+function switchView(view){
+  ['dayView','staffView','loanerView'].forEach(id=>$(id).classList.add('hidden'));
+  $(view+'View').classList.remove('hidden');
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===view));
+}
+
+function changeMonth(delta){
+  visibleMonth=new Date(visibleMonth.getFullYear(),visibleMonth.getMonth()+delta,1);
+  selectedDate=isoFromParts(visibleMonth.getFullYear(),visibleMonth.getMonth()+1,1);
+  loadMonth();
+}
+function goToday(){
+  selectedDate=localDateISO();
+  const d=new Date(selectedDate+'T00:00:00');
+  visibleMonth=new Date(d.getFullYear(),d.getMonth(),1);
+  loadMonth();
+}
+
+function openNew(){
+  $('dialogTitle').textContent='予定を追加';
+  $('scheduleId').value='';
+  $('eventDate').value=selectedDate;
+  $('startTime').value=''; $('endTime').value=''; $('memberId').value=''; $('eventTypeId').value='';
+  $('customerName').value=''; $('vehicleId').value=''; $('loanerId').value=''; $('memo').value='';
+  $('deleteBtn').classList.add('hidden'); $('formStatus').textContent=''; dialog.showModal();
+}
+function openEdit(id){
+  const s=monthSchedules.find(x=>String(x.id)===String(id)); if(!s)return;
+  $('dialogTitle').textContent='予定を編集'; $('scheduleId').value=s.id;
+  $('eventDate').value=s.event_date||''; $('startTime').value=timeText(s.start_time); $('endTime').value=timeText(s.end_time);
+  $('memberId').value=s.member_id??''; $('eventTypeId').value=s.event_type_id??'';
+  $('customerName').value=s.customer_name??''; $('vehicleId').value=s.vehicle_id??''; $('loanerId').value=s.loaner_id??''; $('memo').value=s.memo??'';
+  $('deleteBtn').classList.remove('hidden'); $('formStatus').textContent=''; dialog.showModal();
+}
+function payload(){
+  const nullable=v=>v===''?null:v;
+  return {
+    event_date:$('eventDate').value,
+    start_time:$('startTime').value,
+    end_time:nullable($('endTime').value),
+    member_id:nullable($('memberId').value),
+    event_type_id:nullable($('eventTypeId').value),
+    customer_name:nullable($('customerName').value.trim()),
+    vehicle_id:nullable($('vehicleId').value),
+    loaner_id:nullable($('loanerId').value),
+    memo:nullable($('memo').value.trim())
+  };
+}
+async function hasLoanerConflict(p,id){
+  if(!p.loaner_id || !p.event_date || !p.start_time) return null;
+
+  let q=sb.from('schedules')
+    .select('id,event_date,start_time,end_time,loaner_id')
+    .eq('event_date',p.event_date)
+    .eq('loaner_id',p.loaner_id);
+
+  const {data,error}=await q;
+  if(error) return {error};
+
+  const newStart=p.start_time;
+  const newEnd=p.end_time || '23:59';
+
+  const conflict=(data||[]).find(s=>{
+    if(id && String(s.id)===String(id)) return false;
+    const oldStart=s.start_time || '00:00';
+    const oldEnd=s.end_time || '23:59';
+    return newStart < oldEnd && newEnd > oldStart;
+  });
+
+  return {conflict};
+}
+
+async function saveSchedule(ev){
+  ev.preventDefault();
+  $('saveBtn').disabled=true;
+  $('formStatus').className='status';
+  $('formStatus').textContent='確認中…';
+
+  const id=$('scheduleId').value;
+  const p=payload();
+
+  if(p.loaner_id){
+    const check=await hasLoanerConflict(p,id);
+    if(check?.error){
+      $('saveBtn').disabled=false;
+      $('formStatus').className='status error';
+      $('formStatus').textContent='代車確認エラー：'+check.error.message;
+      return;
+    }
+    if(check?.conflict){
+      const loaner=findById(masters.loaners,p.loaner_id);
+      $('saveBtn').disabled=false;
+      $('formStatus').className='status error';
+      $('formStatus').textContent=
+        `この時間は${labelOf(loaner,'この代車')}が使用中です（${timeText(check.conflict.start_time)} - ${timeText(check.conflict.end_time)}）`;
+      return;
+    }
+  }
+
+  $('formStatus').textContent='保存中…';
+
+  const res=id
+    ? await sb.from('schedules').update(p).eq('id',id)
+    : await sb.from('schedules').insert(p);
+
+  $('saveBtn').disabled=false;
+
+  if(res.error){
+    $('formStatus').className='status error';
+    $('formStatus').textContent='保存エラー：'+res.error.message;
+    return;
+  }
+
+  selectedDate=p.event_date;
+  const d=new Date(selectedDate+'T00:00:00');
+  visibleMonth=new Date(d.getFullYear(),d.getMonth(),1);
+  dialog.close();
+  await loadMonth();
+}
+async function deleteSchedule(){
+  const id=$('scheduleId').value; if(!id || !confirm('この予定を削除しますか？'))return;
+  $('deleteBtn').disabled=true;
+  const {error}=await sb.from('schedules').delete().eq('id',id);
+  $('deleteBtn').disabled=false;
+  if(error){ $('formStatus').textContent='削除エラー：'+error.message; $('formStatus').className='status error'; return; }
+  dialog.close();
+  await loadMonth();
+}
+
+$('loginBtn').addEventListener('click',login);
+$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+$('logoutBtn').addEventListener('click',logout);
+$('prevMonthBtn').addEventListener('click',()=>changeMonth(-1));
+$('nextMonthBtn').addEventListener('click',()=>changeMonth(1));
+$('todayBtn').addEventListener('click',goToday);
+$('refreshBtn').addEventListener('click',async()=>{await loadMasters();await loadMonth()});
+$('addBtn').addEventListener('click',openNew);
+$('cancelBtn').addEventListener('click',()=>dialog.close());
+$('scheduleForm').addEventListener('submit',saveSchedule);
+$('deleteBtn').addEventListener('click',deleteSchedule);
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.addEventListener('click',()=>switchView(tab.dataset.view));
+});
+
+sb.auth.onAuthStateChange((_event,session)=>{ if(!session) showLogin(); });
+boot();
+</script>
+</body>
+</html>
