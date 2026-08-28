@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: store-suite-1 -->
+  <!-- version: customer-master-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -155,6 +155,13 @@
     .selected-summary b{font-size:17px}
     .customer-ledger{max-height:60vh;overflow:auto}
     .ledger-card{border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:8px}
+    .ledger-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+    .ledger-actions{display:flex;gap:6px}
+    .ledger-actions button{padding:7px 9px;font-size:11px}
+    .customer-add-box{margin:12px 0;padding:12px;background:#f9fafb;border:1px solid var(--line);border-radius:12px}
+    .customer-add-box h3{margin:0 0 10px;font-size:15px}
+    .inspection-soon{color:#b45309;font-weight:800}
+    .inspection-overdue{color:#b91c1c;font-weight:800}
     .repeat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     @media print{
       body{background:#fff}
@@ -284,6 +291,20 @@
 <dialog id="customerLedgerDialog">
   <div class="modal">
     <h2>顧客台帳</h2>
+
+    <div class="customer-add-box">
+      <h3 id="customerFormTitle">顧客を追加</h3>
+      <input type="hidden" id="customerEditId">
+      <div class="field"><label>名前</label><input id="ledgerCustomerName" placeholder="必須"></div>
+      <div class="field"><label>電話番号</label><input id="ledgerCustomerPhone" type="tel" placeholder="任意"></div>
+      <div class="field"><label>次回点検時期</label><input id="ledgerNextInspection" type="date"></div>
+      <div class="row">
+        <button id="saveCustomerBtn" type="button">顧客を追加</button>
+        <button id="cancelCustomerEditBtn" type="button" class="ghost hidden">編集をやめる</button>
+      </div>
+      <div id="customerFormStatus" class="status"></div>
+    </div>
+
     <input id="ledgerSearch" placeholder="お客様名・電話番号で検索">
     <div id="ledgerList" class="customer-ledger"></div>
     <div class="actions"><button id="closeLedgerBtn" type="button" class="ghost">閉じる</button></div>
@@ -353,10 +374,15 @@
 
     <div id="availabilityInfo" class="availability"></div>
     <div id="customerField">
+      <div class="field">
+        <label>顧客台帳から選択</label>
+        <select id="customerId"><option value="">顧客を選択しない</option></select>
+      </div>
       <div class="grid2">
         <div class="field"><label>お客様名</label><input id="customerName" type="text" placeholder="任意"></div>
         <div class="field"><label>電話番号</label><input id="customerPhone" type="tel" placeholder="任意"></div>
       </div>
+      <div id="selectedCustomerInfo" class="small"></div>
     </div>
     <div id="customerHistory" class="history-box hidden"></div>
 
@@ -395,7 +421,7 @@ const SUPABASE_URL = 'https://zksmpofpyiozjpngleia.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_UvrJAAg0jGTsxPTipz4fww_6a_tlERN';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let masters = { members:[], event_types:[], vehicles:[], loaners:[] };
+let masters = { members:[], event_types:[], vehicles:[], loaners:[], customers:[] };
 let monthSchedules = [];
 let timelineMode = 'people';
 let selectedDate = localDateISO();
@@ -481,7 +507,7 @@ async function login(){
 async function logout(){ await sb.auth.signOut(); showLogin(); }
 
 async function loadMasters(){
-  const names=['members','event_types','vehicles','loaners'];
+  const names=['members','event_types','vehicles','loaners','customers'];
   for(const name of names){
     const {data,error}=await sb.from(name).select('*').order('id',{ascending:true});
     masters[name]=error?[]:(data||[]);
@@ -491,6 +517,11 @@ async function loadMasters(){
   fillSelect('eventTypeId',masters.event_types,'種類を選択');
   fillSelect('vehicleId',masters.vehicles,'車種なし');
   fillSelect('loanerId',masters.loaners,'代車なし');
+  const customerSel=$('customerId');
+  if(customerSel){
+    customerSel.innerHTML='<option value="">顧客を選択しない</option>'+
+      masters.customers.map(c=>`<option value="${esc(c.id)}">${esc(labelOf(c))}${c.phone?' / '+esc(c.phone):''}</option>`).join('');
+  }
   fillTimeSelects();
 }
 function fillSelect(id,arr,placeholder){
@@ -1075,7 +1106,7 @@ function openNew(){
   $('scheduleId').value='';
   $('eventDate').value=selectedDate;
   $('startTime').value=''; $('endTime').value=''; $('memberId').value=''; $('eventTypeId').value='';
-  $('customerName').value=''; $('customerPhone').value=''; $('repeatType').value='none'; $('repeatCount').value='2'; $('repeatFields').classList.remove('hidden'); $('vehicleId').value=''; $('loanerId').value=''; $('memo').value='';
+  $('customerId').value=''; $('customerName').value=''; $('customerPhone').value=''; $('selectedCustomerInfo').textContent=''; $('repeatType').value='none'; $('repeatCount').value='2'; $('repeatFields').classList.remove('hidden'); $('vehicleId').value=''; $('loanerId').value=''; $('memo').value='';
   $('deleteBtn').classList.add('hidden'); $('duplicateBtn').classList.add('hidden'); $('dateMoveBtns').classList.add('hidden'); $('formStatus').textContent=''; $('customerHistory').classList.add('hidden');
   updateDayOffFields();
   dialog.showModal();
@@ -1085,7 +1116,7 @@ function openEdit(id){
   $('dialogTitle').textContent='予定を編集'; $('scheduleId').value=s.id;
   $('eventDate').value=s.event_date||''; $('startTime').value=timeText(s.start_time); $('endTime').value=timeText(s.end_time);
   $('memberId').value=s.member_id??''; $('eventTypeId').value=s.event_type_id??'';
-  $('customerName').value=s.customer_name??''; $('customerPhone').value=s.customer_phone??''; $('repeatType').value='none'; $('repeatFields').classList.add('hidden'); $('vehicleId').value=s.vehicle_id??''; $('loanerId').value=s.loaner_id??''; $('memo').value=s.memo??'';
+  $('customerId').value=s.customer_id??''; $('customerName').value=s.customer_name??''; $('customerPhone').value=s.customer_phone??''; updateSelectedCustomerInfo(); $('repeatType').value='none'; $('repeatFields').classList.add('hidden'); $('vehicleId').value=s.vehicle_id??''; $('loanerId').value=s.loaner_id??''; $('memo').value=s.memo??'';
   $('deleteBtn').classList.remove('hidden'); $('duplicateBtn').classList.remove('hidden'); $('dateMoveBtns').classList.remove('hidden'); $('formStatus').textContent='';
   updateDayOffFields();
   dialog.showModal();
@@ -1106,10 +1137,82 @@ async function moveScheduleDay(delta){
   if(error){alert('日付を変更できませんでした：'+error.message);return}
   selectedDate=newDate;visibleMonth=new Date(d.getFullYear(),d.getMonth(),1);dialog.close();await loadMonth();
 }
+function updateSelectedCustomerInfo(){
+  const id=$('customerId').value;
+  const c=findById(masters.customers,id);
+  if(!c){$('selectedCustomerInfo').textContent='';return}
+  $('customerName').value=c.name||'';
+  $('customerPhone').value=c.phone||'';
+  $('selectedCustomerInfo').textContent=c.next_inspection_date
+    ? `次回点検時期：${String(c.next_inspection_date).replaceAll('-','/')}`
+    : '次回点検時期：未登録';
+}
+function resetCustomerForm(){
+  $('customerEditId').value='';
+  $('ledgerCustomerName').value='';
+  $('ledgerCustomerPhone').value='';
+  $('ledgerNextInspection').value='';
+  $('customerFormTitle').textContent='顧客を追加';
+  $('saveCustomerBtn').textContent='顧客を追加';
+  $('cancelCustomerEditBtn').classList.add('hidden');
+  $('customerFormStatus').textContent='';
+}
+async function saveCustomer(){
+  const id=$('customerEditId').value;
+  const name=$('ledgerCustomerName').value.trim();
+  const phone=$('ledgerCustomerPhone').value.trim()||null;
+  const next_inspection_date=$('ledgerNextInspection').value||null;
+  if(!name){$('customerFormStatus').className='status error';$('customerFormStatus').textContent='名前を入力してください。';return}
+
+  $('saveCustomerBtn').disabled=true;
+  $('customerFormStatus').className='status';
+  $('customerFormStatus').textContent=id?'更新中…':'追加中…';
+
+  const payload={name,phone,next_inspection_date};
+  const res=id
+    ? await sb.from('customers').update(payload).eq('id',id)
+    : await sb.from('customers').insert(payload);
+
+  $('saveCustomerBtn').disabled=false;
+  if(res.error){
+    $('customerFormStatus').className='status error';
+    $('customerFormStatus').textContent='保存できませんでした：'+res.error.message;
+    return;
+  }
+  await loadMasters();
+  resetCustomerForm();
+  await renderCustomerLedger();
+}
+function editCustomer(id){
+  const c=findById(masters.customers,id); if(!c)return;
+  $('customerEditId').value=c.id;
+  $('ledgerCustomerName').value=c.name||'';
+  $('ledgerCustomerPhone').value=c.phone||'';
+  $('ledgerNextInspection').value=c.next_inspection_date||'';
+  $('customerFormTitle').textContent='顧客を編集';
+  $('saveCustomerBtn').textContent='変更を保存';
+  $('cancelCustomerEditBtn').classList.remove('hidden');
+}
+async function deleteCustomer(id){
+  const c=findById(masters.customers,id); if(!c)return;
+  const {count,error:countError}=await sb.from('schedules').select('id',{count:'exact',head:true}).eq('customer_id',id);
+  if(countError){alert('使用状況を確認できませんでした。');return}
+  if(count>0){
+    alert(`「${labelOf(c)}」は予定で${count}件使用されています。削除はできません。`);
+    return;
+  }
+  if(!confirm(`顧客「${labelOf(c)}」を削除しますか？`))return;
+  const {error}=await sb.from('customers').delete().eq('id',id);
+  if(error){alert('削除できませんでした：'+error.message);return}
+  await loadMasters(); await renderCustomerLedger();
+}
+
 async function showCustomerHistory(){
-  const name=$('customerName').value.trim(), box=$('customerHistory');
-  if(!name){box.classList.add('hidden');return}
-  const {data,error}=await sb.from('schedules').select('*').ilike('customer_name',name).order('event_date',{ascending:false}).limit(8);
+  const name=$('customerName').value.trim(), customerId=$('customerId').value, box=$('customerHistory');
+  if(!name&&!customerId){box.classList.add('hidden');return}
+  let q=sb.from('schedules').select('*').order('event_date',{ascending:false}).limit(8);
+  q=customerId ? q.eq('customer_id',customerId) : q.ilike('customer_name',name);
+  const {data,error}=await q;
   if(error||!data?.length){box.classList.add('hidden');return}
   box.classList.remove('hidden');
   box.innerHTML='<b>お客様の予定履歴</b>'+data.map(s=>{
@@ -1135,27 +1238,49 @@ function updateAvailability(){
 }
 async function renderCustomerLedger(){
   const q=$('ledgerSearch').value.trim().toLowerCase();
-  const {data,error}=await sb.from('schedules').select('*').not('customer_name','is',null).order('event_date',{ascending:false}).limit(1000);
-  if(error){$('ledgerList').innerHTML='<div class="error">読み込みエラー</div>';return}
-  const groups={};
-  (data||[]).forEach(s=>{
-    const key=(s.customer_name||'').trim()+'|'+(s.customer_phone||'');
-    if(!groups[key])groups[key]=[];
-    groups[key].push(s);
-  });
-  const cards=Object.values(groups).filter(items=>{
-    const s=items[0], hay=((s.customer_name||'')+' '+(s.customer_phone||'')).toLowerCase();
+  const customers=masters.customers.filter(c=>{
+    const hay=((c.name||'')+' '+(c.phone||'')).toLowerCase();
     return !q||hay.includes(q);
-  }).map(items=>{
-    const s=items[0], latest=items[0], member=labelOf(findById(masters.members,latest.member_id));
-    const vehicle=labelOf(findById(masters.vehicles,latest.vehicle_id));
-    return `<div class="ledger-card"><b>${esc(s.customer_name||'名称なし')}</b>
-      <div class="small">${s.customer_phone?'TEL '+esc(s.customer_phone)+' / ':''}来店・予定 ${items.length}件</div>
-      <div class="small">最新：${esc(latest.event_date.replaceAll('-','/'))}${member?' / '+esc(member):''}${vehicle?' / '+esc(vehicle):''}</div></div>`;
   });
-  $('ledgerList').innerHTML=cards.join('')||'<div class="empty">該当するお客様はいません</div>';
+
+  const ids=customers.map(c=>c.id);
+  let scheduleRows=[];
+  if(ids.length){
+    const {data}=await sb.from('schedules').select('id,customer_id,event_date').in('customer_id',ids);
+    scheduleRows=data||[];
+  }
+
+  const today=localDateISO();
+  $('ledgerList').innerHTML=customers.map(c=>{
+    const count=scheduleRows.filter(s=>String(s.customer_id)===String(c.id)).length;
+    let inspection='次回点検：未登録', cls='';
+    if(c.next_inspection_date){
+      inspection='次回点検：'+String(c.next_inspection_date).replaceAll('-','/');
+      if(c.next_inspection_date<today) cls='inspection-overdue';
+      else{
+        const diff=(new Date(c.next_inspection_date+'T00:00:00')-new Date(today+'T00:00:00'))/86400000;
+        if(diff<=30) cls='inspection-soon';
+      }
+    }
+    return `<div class="ledger-card">
+      <div class="ledger-head">
+        <div>
+          <b>${esc(c.name||'名称なし')}</b>
+          <div class="small">${c.phone?'TEL '+esc(c.phone):'電話番号なし'} / 予定 ${count}件</div>
+          <div class="${cls||'small'}">${esc(inspection)}</div>
+        </div>
+        <div class="ledger-actions">
+          <button type="button" class="secondary ledger-edit" data-id="${esc(c.id)}">編集</button>
+          <button type="button" class="danger ledger-delete" data-id="${esc(c.id)}">削除</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('')||'<div class="empty">該当するお客様はいません</div>';
+
+  $('ledgerList').querySelectorAll('.ledger-edit').forEach(b=>b.onclick=()=>editCustomer(b.dataset.id));
+  $('ledgerList').querySelectorAll('.ledger-delete').forEach(b=>b.onclick=()=>deleteCustomer(b.dataset.id));
 }
-async function openCustomerLedger(){customerLedgerDialog.showModal();await renderCustomerLedger()}
+async function openCustomerLedger(){resetCustomerForm();customerLedgerDialog.showModal();await renderCustomerLedger()}
 function toggleStoreMode(){
   document.body.classList.toggle('store-mode');
   if(document.body.classList.contains('store-mode'))switchView('timeline');
@@ -1171,6 +1296,7 @@ function payload(){
     end_time:dayOff ? '23:59' : nullable($('endTime').value),
     member_id:nullable($('memberId').value),
     event_type_id:nullable($('eventTypeId').value),
+    customer_id:dayOff ? null : nullable($('customerId').value),
     customer_name:dayOff ? null : nullable($('customerName').value.trim()),
     customer_phone:dayOff ? null : nullable($('customerPhone').value.trim()),
     vehicle_id:dayOff ? null : nullable($('vehicleId').value),
@@ -1250,6 +1376,10 @@ async function saveSchedule(ev){
   const id=$('scheduleId').value;
   const p=payload();
   const dayOff=isDayOffType(p.event_type_id);
+  if(p.customer_id){
+    const c=findById(masters.customers,p.customer_id);
+    if(c){p.customer_name=c.name||p.customer_name;p.customer_phone=c.phone||p.customer_phone;}
+  }
 
   if(!p.event_date){
     $('formStatus').className='status error';
@@ -1379,6 +1509,8 @@ $('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
 $('customerLedgerBtn').addEventListener('click',openCustomerLedger);
 $('closeLedgerBtn').addEventListener('click',()=>customerLedgerDialog.close());
 $('ledgerSearch').addEventListener('input',renderCustomerLedger);
+$('saveCustomerBtn').addEventListener('click',saveCustomer);
+$('cancelCustomerEditBtn').addEventListener('click',resetCustomerForm);
 $('storeModeBtn').addEventListener('click',toggleStoreMode);
 $('settingsBtn').addEventListener('click',openSettings);
 $('closeSettingsBtn').addEventListener('click',()=>settingsDialog.close());
@@ -1405,6 +1537,7 @@ $('deleteBtn').addEventListener('click',deleteSchedule);
 $('duplicateBtn').addEventListener('click',duplicateSchedule);
 $('prevDayMoveBtn').addEventListener('click',()=>moveScheduleDay(-1));
 $('nextDayMoveBtn').addEventListener('click',()=>moveScheduleDay(1));
+$('customerId').addEventListener('change',()=>{updateSelectedCustomerInfo();showCustomerHistory()});
 $('customerName').addEventListener('change',showCustomerHistory);
 ['memberId','loanerId','eventDate','eventTypeId'].forEach(id=>$(id).addEventListener('change',updateAvailability));
 $('eventTypeId').addEventListener('change',updateDayOffFields);
