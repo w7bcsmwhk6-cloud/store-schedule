@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: leave-count-fix-2 -->
+  <!-- version: staff-view-improved-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -487,32 +487,61 @@ function renderSelectedDay(){
 function renderStaffView(){
   const schedules=selectedSchedules();
   $('staffDateTitle').textContent=selectedDate.replaceAll('-','/')+' スタッフ別';
+
   if(!masters.members.length){
     $('staffList').innerHTML='<div class="empty">スタッフが登録されていません</div>';
     return;
   }
+
   $('staffList').innerHTML=masters.members.map(member=>{
-    const items=schedules.filter(s=>String(s.member_id)===String(member.id));
-    const body=items.length ? items.map(s=>{
+    const items=schedules
+      .filter(s=>String(s.member_id)===String(member.id))
+      .sort((a,b)=>String(a.start_time||'00:00').localeCompare(String(b.start_time||'00:00')));
+
+    const dayOffs=items.filter(s=>isDayOffType(s.event_type_id));
+    const normalItems=items.filter(isNormalSchedule);
+
+    const statusHtml=dayOffs.length
+      ? dayOffs.map(s=>{
+          const et=findById(masters.event_types,s.event_type_id);
+          return `<span class="badge" style="background:${esc(colorOf(et))}22;color:${esc(colorOf(et))};margin-left:6px">${esc(labelOf(et,'休み'))}</span>`;
+        }).join('')
+      : '';
+
+    const bodyParts=[];
+
+    dayOffs.forEach(s=>{
+      const et=findById(masters.event_types,s.event_type_id);
+      bodyParts.push(`<div class="mini-event" style="border-left-color:${esc(colorOf(et))}">
+        <div class="mini-time">${esc(labelOf(et,'休み'))}</div>
+        ${s.memo?`<div>${esc(s.memo)}</div>`:''}
+      </div>`);
+    });
+
+    normalItems.forEach(s=>{
       const et=findById(masters.event_types,s.event_type_id);
       const vehicle=findById(masters.vehicles,s.vehicle_id);
-      const dayOff=isDayOffType(s.event_type_id);
+      const loaner=findById(masters.loaners,s.loaner_id);
 
-      if(dayOff){
-        return `<div class="mini-event" style="border-left-color:${esc(colorOf(et))}">
-          <div class="mini-time">${esc(labelOf(et,'休み'))}</div>
-        </div>`;
-      }
+      const details=[
+        labelOf(et,'予定'),
+        vehicle ? labelOf(vehicle) : '',
+        loaner ? labelOf(loaner) : '',
+        s.customer_name || ''
+      ].filter(Boolean).map(esc).join(' / ');
 
-      return `<div class="mini-event" style="border-left-color:${esc(colorOf(et))}">
+      bodyParts.push(`<div class="mini-event" style="border-left-color:${esc(colorOf(et))}">
         <div class="mini-time">${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</div>
-        <div>${esc(labelOf(et,'予定'))}${vehicle?' / '+esc(labelOf(vehicle)):''}${s.customer_name?' / '+esc(s.customer_name):''}</div>
-      </div>`;
-    }).join('') : '<div class="small">予定なし</div>';
+        <div>${details}</div>
+      </div>`);
+    });
+
+    const body=bodyParts.length ? bodyParts.join('') : '<div class="small">予定なし</div>';
+
     return `<div class="staff-card">
       <div class="staff-head">
-        <div class="staff-name">${esc(labelOf(member,'スタッフ'))}</div>
-        <div class="small">${items.length}件</div>
+        <div class="staff-name">${esc(labelOf(member,'スタッフ'))}${statusHtml}</div>
+        <div class="small">${normalItems.length}件</div>
       </div>
       <div class="mini-list">${body}</div>
     </div>`;
