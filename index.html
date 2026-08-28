@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: staff-view-improved-1 -->
+  <!-- version: staff-count-time-30min-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -198,8 +198,8 @@
     <div class="field"><label>予定種類</label><select id="eventTypeId" required></select></div>
 
     <div id="timeFields" class="grid2">
-      <div class="field"><label>開始</label><input id="startTime" type="time" step="1800" required></div>
-      <div class="field"><label>終了</label><input id="endTime" type="time" step="1800"></div>
+      <div class="field"><label>開始</label><select id="startTime" required></select></div>
+      <div class="field"><label>終了</label><select id="endTime"></select></div>
     </div>
 
     <div id="customerField" class="field"><label>お客様名</label><input id="customerName" type="text" placeholder="任意"></div>
@@ -248,6 +248,18 @@ function esc(v=''){ return String(v).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&
 function findById(arr,id){ return arr.find(x=>String(x.id)===String(id)); }
 function isoFromParts(y,m,d){ return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
 
+function fillTimeSelects(){
+  const options=[];
+  for(let h=0; h<24; h++){
+    for(const m of [0,30]){
+      const value=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      options.push(`<option value="${value}">${value}</option>`);
+    }
+  }
+  $('startTime').innerHTML='<option value="">開始時間を選択</option>'+options.join('');
+  $('endTime').innerHTML='<option value="">終了時間を選択</option>'+options.join('');
+}
+
 function isDayOffType(id){
   const et=findById(masters.event_types,id);
   const name=labelOf(et).trim();
@@ -269,7 +281,7 @@ function updateDayOffFields(){
 
   if(dayOff){
     $('startTime').value='00:00';
-    $('endTime').value='23:59';
+    $('endTime').value='23:30';
     $('customerName').value='';
     $('vehicleId').value='';
     $('loanerId').value='';
@@ -307,6 +319,7 @@ async function loadMasters(){
   fillSelect('eventTypeId',masters.event_types,'種類を選択');
   fillSelect('vehicleId',masters.vehicles,'車種なし');
   fillSelect('loanerId',masters.loaners,'代車なし');
+  fillTimeSelects();
 }
 function fillSelect(id,arr,placeholder){
   const el=$(id);
@@ -623,7 +636,7 @@ function payload(){
   return {
     event_date:$('eventDate').value,
     start_time:dayOff ? '00:00' : $('startTime').value,
-    end_time:dayOff ? '23:59' : nullable($('endTime').value),
+    end_time:dayOff ? '23:30' : nullable($('endTime').value),
     member_id:nullable($('memberId').value),
     event_type_id:nullable($('eventTypeId').value),
     customer_name:dayOff ? null : nullable($('customerName').value.trim()),
