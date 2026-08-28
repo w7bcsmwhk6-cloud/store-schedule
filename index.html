@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: settings-master-1 -->
+  <!-- version: operations-plus-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -140,6 +140,17 @@
     .master-row{display:grid;grid-template-columns:1fr auto auto;gap:7px;align-items:center}
     .master-row input{padding:9px 10px}
     .master-row button{padding:9px 10px;font-size:12px}
+    .master-row.event-type-row{grid-template-columns:52px 1fr auto auto}
+    .master-color{width:46px;height:40px;padding:3px;border-radius:9px}
+    .availability{margin-top:5px;font-size:11px;color:#15803d}
+    .history-box{margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+    .history-item{padding:7px 0;border-bottom:1px solid #f0f1f3;font-size:12px}
+    .store-mode .month-card,.store-mode .stats,.store-mode .search-box,.store-mode .tabs,.store-mode #dayView,.store-mode #staffView,.store-mode #loanerView,.store-mode .fab{display:none!important}
+    .store-mode #timelineView{display:block!important}
+    .store-mode .wrap{max-width:none;padding:8px}
+    .store-mode header h1{font-size:18px}
+    .date-move{display:flex;gap:6px;margin-top:8px}
+    .date-move button{flex:1;padding:8px;font-size:12px}
 
     @media(max-width:560px){
       .wrap{padding:12px 10px 94px}
@@ -173,6 +184,7 @@
         <div id="userLabel" class="small"></div>
       </div>
       <div class="row">
+        <button id="storeModeBtn" class="settings-btn">店頭モード</button>
         <button id="settingsBtn" class="settings-btn">設定</button>
         <button id="logoutBtn" class="ghost">ログアウト</button>
       </div>
@@ -273,6 +285,22 @@
       <div id="loanerSettingsList" class="master-list"></div>
     </div>
 
+    <div class="settings-section">
+      <div class="row" style="margin-bottom:9px">
+        <div class="settings-title grow">車両</div>
+        <button id="addVehicleBtn" type="button">＋ 追加</button>
+      </div>
+      <div id="vehicleSettingsList" class="master-list"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="row" style="margin-bottom:9px">
+        <div class="settings-title grow">予定種類・色</div>
+        <button id="addEventTypeBtn" type="button">＋ 追加</button>
+      </div>
+      <div id="eventTypeSettingsList" class="master-list"></div>
+    </div>
+
     <div id="settingsStatus" class="status"></div>
     <div class="actions">
       <button id="closeSettingsBtn" type="button" class="ghost">閉じる</button>
@@ -297,7 +325,9 @@
       <div class="field"><label>終了</label><select id="endTime"></select></div>
     </div>
 
+    <div id="availabilityInfo" class="availability"></div>
     <div id="customerField" class="field"><label>お客様名</label><input id="customerName" type="text" placeholder="任意"></div>
+    <div id="customerHistory" class="history-box hidden"></div>
 
     <div id="vehicleLoanerFields" class="grid2">
       <div class="field"><label>車種</label><select id="vehicleId"></select></div>
@@ -307,7 +337,12 @@
     <div class="field"><label>メモ</label><textarea id="memo" placeholder="任意"></textarea></div>
     <div id="formStatus" class="status"></div>
 
+    <div id="dateMoveBtns" class="date-move hidden">
+      <button type="button" id="prevDayMoveBtn" class="ghost">← 前日へ</button>
+      <button type="button" id="nextDayMoveBtn" class="ghost">翌日へ →</button>
+    </div>
     <div class="actions">
+      <button type="button" id="duplicateBtn" class="secondary hidden">複製</button>
       <button type="button" id="deleteBtn" class="danger hidden">削除</button>
       <button type="button" id="cancelBtn" class="ghost">キャンセル</button>
       <button type="button" id="saveBtn">保存</button>
@@ -922,83 +957,70 @@ function goToday(){
   loadMonth();
 }
 
+function masterInfo(type){
+  return {
+    member:{table:'members',label:'スタッフ',arr:masters.members,col:'member_id'},
+    loaner:{table:'loaners',label:'代車',arr:masters.loaners,col:'loaner_id'},
+    vehicle:{table:'vehicles',label:'車両',arr:masters.vehicles,col:'vehicle_id'},
+    eventType:{table:'event_types',label:'予定種類',arr:masters.event_types,col:'event_type_id'}
+  }[type];
+}
 function renderSettings(){
-  const makeRows=(arr,type)=>arr.map(x=>`<div class="master-row">
-    <input id="${type}Name${esc(x.id)}" value="${esc(labelOf(x))}" aria-label="名前">
-    <button type="button" class="secondary master-save" data-type="${type}" data-id="${esc(x.id)}">保存</button>
-    <button type="button" class="danger master-delete" data-type="${type}" data-id="${esc(x.id)}">削除</button>
-  </div>`).join('');
-
-  $('memberSettingsList').innerHTML=makeRows(masters.members,'member')||'<div class="small">スタッフなし</div>';
-  $('loanerSettingsList').innerHTML=makeRows(masters.loaners,'loaner')||'<div class="small">代車なし</div>';
+  const rows=(arr,type)=>arr.map(x=>{
+    if(type==='eventType') return `<div class="master-row event-type-row">
+      <input class="master-color" type="color" id="${type}Color${esc(x.id)}" value="${esc(colorOf(x))}">
+      <input id="${type}Name${esc(x.id)}" value="${esc(labelOf(x))}">
+      <button type="button" class="secondary master-save" data-type="${type}" data-id="${esc(x.id)}">保存</button>
+      <button type="button" class="danger master-delete" data-type="${type}" data-id="${esc(x.id)}">削除</button></div>`;
+    return `<div class="master-row"><input id="${type}Name${esc(x.id)}" value="${esc(labelOf(x))}">
+      <button type="button" class="secondary master-save" data-type="${type}" data-id="${esc(x.id)}">保存</button>
+      <button type="button" class="danger master-delete" data-type="${type}" data-id="${esc(x.id)}">削除</button></div>`;
+  }).join('');
+  $('memberSettingsList').innerHTML=rows(masters.members,'member')||'<div class="small">スタッフなし</div>';
+  $('loanerSettingsList').innerHTML=rows(masters.loaners,'loaner')||'<div class="small">代車なし</div>';
+  $('vehicleSettingsList').innerHTML=rows(masters.vehicles,'vehicle')||'<div class="small">車両なし</div>';
+  $('eventTypeSettingsList').innerHTML=rows(masters.event_types,'eventType')||'<div class="small">予定種類なし</div>';
   $('settingsStatus').textContent='';
-
-  settingsDialog.querySelectorAll('.master-save').forEach(btn=>btn.addEventListener('click',()=>saveMaster(btn.dataset.type,btn.dataset.id)));
-  settingsDialog.querySelectorAll('.master-delete').forEach(btn=>btn.addEventListener('click',()=>deleteMaster(btn.dataset.type,btn.dataset.id)));
+  settingsDialog.querySelectorAll('.master-save').forEach(b=>b.onclick=()=>saveMaster(b.dataset.type,b.dataset.id));
+  settingsDialog.querySelectorAll('.master-delete').forEach(b=>b.onclick=()=>deleteMaster(b.dataset.type,b.dataset.id));
 }
-
-function openSettings(){
-  renderSettings();
-  settingsDialog.showModal();
-}
-
+function openSettings(){renderSettings();settingsDialog.showModal()}
 async function addMaster(type){
-  const table=type==='member'?'members':'loaners';
-  const label=type==='member'?'新しいスタッフ':'新しい代車';
+  const info=masterInfo(type), payload={name:`新しい${info.label}`};
+  if(type==='eventType') payload.color='#64748b';
   $('settingsStatus').textContent='追加中…';
-  const {error}=await sb.from(table).insert({name:label});
-  if(error){
-    $('settingsStatus').className='status error';
-    $('settingsStatus').textContent='追加できませんでした：'+error.message;
-    return;
-  }
-  await loadMasters();
-  renderSettings();
-  renderStaffView(); renderLoanerView(); renderTimelineView();
+  let {error}=await sb.from(info.table).insert(payload);
+  if(error && type==='eventType'){ delete payload.color; ({error}=await sb.from(info.table).insert(payload)); }
+  if(error){$('settingsStatus').className='status error';$('settingsStatus').textContent='追加できませんでした：'+error.message;return}
+  await loadMasters();renderSettings();renderCalendar();renderSelectedDay();renderStaffView();renderLoanerView();renderTimelineView();
 }
-
 async function saveMaster(type,id){
-  const table=type==='member'?'members':'loaners';
-  const input=$(type+'Name'+id);
-  const name=input?.value.trim();
+  const info=masterInfo(type), name=$(type+'Name'+id)?.value.trim();
   if(!name){alert('名前を入力してください。');return}
-  $('settingsStatus').className='status';
+  let payload={name};
+  if(type==='eventType'){
+    const row=findById(masters.event_types,id);
+    const color=$('eventTypeColor'+id)?.value;
+    const colorColumn = row && Object.prototype.hasOwnProperty.call(row,'color') ? 'color' :
+      row && Object.prototype.hasOwnProperty.call(row,'hex_color') ? 'hex_color' :
+      row && Object.prototype.hasOwnProperty.call(row,'color_code') ? 'color_code' : 'color';
+    payload[colorColumn]=color;
+  }
   $('settingsStatus').textContent='保存中…';
-  const {error}=await sb.from(table).update({name}).eq('id',id);
-  if(error){
-    $('settingsStatus').className='status error';
-    $('settingsStatus').textContent='保存できませんでした：'+error.message;
-    return;
-  }
-  await loadMasters();
-  renderSettings();
-  renderCalendar(); renderSelectedDay(); renderStaffView(); renderLoanerView(); renderTimelineView();
+  let {error}=await sb.from(info.table).update(payload).eq('id',id);
+  if(error && type==='eventType'){payload={name};({error}=await sb.from(info.table).update(payload).eq('id',id))}
+  if(error){$('settingsStatus').className='status error';$('settingsStatus').textContent='保存できませんでした：'+error.message;return}
+  await loadMasters();renderSettings();renderCalendar();renderSelectedDay();renderStaffView();renderLoanerView();renderTimelineView();
 }
-
 async function deleteMaster(type,id){
-  const table=type==='member'?'members':'loaners';
-  const label=type==='member'?'スタッフ':'代車';
-  const col=type==='member'?'member_id':'loaner_id';
-  const row=findById(type==='member'?masters.members:masters.loaners,id);
-  const {count,error:countError}=await sb.from('schedules').select('id',{count:'exact',head:true}).eq(col,id);
+  const info=masterInfo(type), row=findById(info.arr,id);
+  const {count,error:countError}=await sb.from('schedules').select('id',{count:'exact',head:true}).eq(info.col,id);
   if(countError){alert('使用状況を確認できませんでした。');return}
-
-  if(count>0){
-    alert(`${label}「${labelOf(row)}」は予定で${count}件使用されています。\n先に予定側を変更してから削除してください。`);
-    return;
-  }
-  if(!confirm(`${label}「${labelOf(row)}」を削除しますか？`))return;
-
-  $('settingsStatus').textContent='削除中…';
-  const {error}=await sb.from(table).delete().eq('id',id);
-  if(error){
-    $('settingsStatus').className='status error';
-    $('settingsStatus').textContent='削除できませんでした：'+error.message;
-    return;
-  }
-  await loadMasters();
-  renderSettings();
-  renderStaffView(); renderLoanerView(); renderTimelineView();
+  if(count>0){alert(`${info.label}「${labelOf(row)}」は予定で${count}件使用されています。\n先に予定側を変更してから削除してください。`);return}
+  if(!confirm(`${info.label}「${labelOf(row)}」を削除しますか？`))return;
+  const {error}=await sb.from(info.table).delete().eq('id',id);
+  if(error){alert('削除できませんでした：'+error.message);return}
+  await loadMasters();renderSettings();renderCalendar();renderSelectedDay();renderStaffView();renderLoanerView();renderTimelineView();
 }
 
 function openNew(){
@@ -1007,7 +1029,7 @@ function openNew(){
   $('eventDate').value=selectedDate;
   $('startTime').value=''; $('endTime').value=''; $('memberId').value=''; $('eventTypeId').value='';
   $('customerName').value=''; $('vehicleId').value=''; $('loanerId').value=''; $('memo').value='';
-  $('deleteBtn').classList.add('hidden'); $('formStatus').textContent='';
+  $('deleteBtn').classList.add('hidden'); $('duplicateBtn').classList.add('hidden'); $('dateMoveBtns').classList.add('hidden'); $('formStatus').textContent=''; $('customerHistory').classList.add('hidden');
   updateDayOffFields();
   dialog.showModal();
 }
@@ -1017,9 +1039,57 @@ function openEdit(id){
   $('eventDate').value=s.event_date||''; $('startTime').value=timeText(s.start_time); $('endTime').value=timeText(s.end_time);
   $('memberId').value=s.member_id??''; $('eventTypeId').value=s.event_type_id??'';
   $('customerName').value=s.customer_name??''; $('vehicleId').value=s.vehicle_id??''; $('loanerId').value=s.loaner_id??''; $('memo').value=s.memo??'';
-  $('deleteBtn').classList.remove('hidden'); $('formStatus').textContent='';
+  $('deleteBtn').classList.remove('hidden'); $('duplicateBtn').classList.remove('hidden'); $('dateMoveBtns').classList.remove('hidden'); $('formStatus').textContent='';
   updateDayOffFields();
   dialog.showModal();
+}
+async function duplicateSchedule(){
+  const id=$('scheduleId').value, s=monthSchedules.find(x=>String(x.id)===String(id)); if(!s)return;
+  $('scheduleId').value=''; $('dialogTitle').textContent='予定を複製';
+  $('deleteBtn').classList.add('hidden');$('duplicateBtn').classList.add('hidden');$('dateMoveBtns').classList.add('hidden');
+  $('formStatus').textContent='内容を確認して「保存」を押してください。';
+}
+async function moveScheduleDay(delta){
+  const id=$('scheduleId').value;if(!id)return;
+  const d=new Date($('eventDate').value+'T00:00:00');d.setDate(d.getDate()+delta);
+  const newDate=localDateISO(d), p=payload();p.event_date=newDate;
+  const mc=await hasMemberConflict(p,id);if(mc?.conflict){alert('移動先の日に担当者の予定があります。');return}
+  if(p.loaner_id){const lc=await hasLoanerConflict(p,id);if(lc?.conflict){alert('移動先の日は代車が使用されています。');return}}
+  const {error}=await sb.from('schedules').update({event_date:newDate}).eq('id',id);
+  if(error){alert('日付を変更できませんでした：'+error.message);return}
+  selectedDate=newDate;visibleMonth=new Date(d.getFullYear(),d.getMonth(),1);dialog.close();await loadMonth();
+}
+async function showCustomerHistory(){
+  const name=$('customerName').value.trim(), box=$('customerHistory');
+  if(!name){box.classList.add('hidden');return}
+  const {data,error}=await sb.from('schedules').select('*').ilike('customer_name',name).order('event_date',{ascending:false}).limit(8);
+  if(error||!data?.length){box.classList.add('hidden');return}
+  box.classList.remove('hidden');
+  box.innerHTML='<b>お客様の予定履歴</b>'+data.map(s=>{
+    const et=labelOf(findById(masters.event_types,s.event_type_id),'予定');
+    const v=labelOf(findById(masters.vehicles,s.vehicle_id));
+    return `<div class="history-item">${esc(s.event_date.replaceAll('-','/'))} / ${esc(et)}${v?' / '+esc(v):''}</div>`;
+  }).join('');
+}
+function updateAvailability(){
+  const box=$('availabilityInfo'); if(!box)return;
+  if(isDayOffType($('eventTypeId').value)){box.textContent='';return}
+  const member=$('memberId').value, loaner=$('loanerId').value, date=$('eventDate').value;
+  if(!date){box.textContent='';return}
+  const items=monthSchedules.filter(s=>s.event_date===date && isNormalSchedule(s));
+  const free=[];
+  for(let total=600;total<1080;total+=30){
+    const st=`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+    const en=`${String(Math.floor((total+30)/60)).padStart(2,'0')}:${String((total+30)%60).padStart(2,'0')}`;
+    const busy=items.some(s=>(member&&String(s.member_id)===String(member)||loaner&&String(s.loaner_id)===String(loaner)) && st<timeText(s.end_time||'23:59')&&en>timeText(s.start_time));
+    if(!busy)free.push(st);
+  }
+  box.textContent=(member||loaner)?`空き30分枠：${free.join('、')||'なし'}`:'';
+}
+function toggleStoreMode(){
+  document.body.classList.toggle('store-mode');
+  if(document.body.classList.contains('store-mode'))switchView('timeline');
+  $('storeModeBtn').textContent=document.body.classList.contains('store-mode')?'通常表示':'店頭モード';
 }
 function payload(){
   const nullable=v=>v===''?null:v;
@@ -1202,10 +1272,13 @@ async function deleteSchedule(){
 
 $('loginBtn').addEventListener('click',login);
 $('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+$('storeModeBtn').addEventListener('click',toggleStoreMode);
 $('settingsBtn').addEventListener('click',openSettings);
 $('closeSettingsBtn').addEventListener('click',()=>settingsDialog.close());
 $('addMemberBtn').addEventListener('click',()=>addMaster('member'));
 $('addLoanerBtn').addEventListener('click',()=>addMaster('loaner'));
+$('addVehicleBtn').addEventListener('click',()=>addMaster('vehicle'));
+$('addEventTypeBtn').addEventListener('click',()=>addMaster('eventType'));
 $('logoutBtn').addEventListener('click',logout);
 $('prevMonthBtn').addEventListener('click',()=>changeMonth(-1));
 $('nextMonthBtn').addEventListener('click',()=>changeMonth(1));
@@ -1220,6 +1293,11 @@ $('addBtn').addEventListener('click',openNew);
 $('cancelBtn').addEventListener('click',()=>dialog.close());
 $('saveBtn').addEventListener('click',saveSchedule);
 $('deleteBtn').addEventListener('click',deleteSchedule);
+$('duplicateBtn').addEventListener('click',duplicateSchedule);
+$('prevDayMoveBtn').addEventListener('click',()=>moveScheduleDay(-1));
+$('nextDayMoveBtn').addEventListener('click',()=>moveScheduleDay(1));
+$('customerName').addEventListener('change',showCustomerHistory);
+['memberId','loanerId','eventDate','eventTypeId'].forEach(id=>$(id).addEventListener('change',updateAvailability));
 $('eventTypeId').addEventListener('change',updateDayOffFields);
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click',()=>switchView(tab.dataset.view));
