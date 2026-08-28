@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: staff-count-time-30min-1 -->
+  <!-- version: business-hours-10-18-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -250,8 +250,9 @@ function isoFromParts(y,m,d){ return `${y}-${String(m).padStart(2,'0')}-${String
 
 function fillTimeSelects(){
   const options=[];
-  for(let h=0; h<24; h++){
+  for(let h=10; h<=18; h++){
     for(const m of [0,30]){
+      if(h===18 && m===30) continue;
       const value=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
       options.push(`<option value="${value}">${value}</option>`);
     }
@@ -280,8 +281,8 @@ function updateDayOffFields(){
   $('startTime').required=!dayOff;
 
   if(dayOff){
-    $('startTime').value='00:00';
-    $('endTime').value='23:30';
+    $('startTime').dataset.dayoff='1';
+    $('endTime').dataset.dayoff='1';
     $('customerName').value='';
     $('vehicleId').value='';
     $('loanerId').value='';
@@ -636,7 +637,7 @@ function payload(){
   return {
     event_date:$('eventDate').value,
     start_time:dayOff ? '00:00' : $('startTime').value,
-    end_time:dayOff ? '23:30' : nullable($('endTime').value),
+    end_time:dayOff ? '23:59' : nullable($('endTime').value),
     member_id:nullable($('memberId').value),
     event_type_id:nullable($('eventTypeId').value),
     customer_name:dayOff ? null : nullable($('customerName').value.trim()),
