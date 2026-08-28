@@ -59,6 +59,16 @@
       display:flex;align-items:center;justify-content:center;background:#eef2ff;color:#3730a3;
       font-size:11px;font-weight:800
     }
+    .dayoff-list{
+      width:100%;display:flex;flex-direction:column;gap:2px;margin-top:1px;
+    }
+    .dayoff-chip{
+      width:100%;padding:2px 3px;border-radius:5px;font-size:9px;line-height:1.15;
+      font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+      background:#f3f4f6;color:#374151;
+    }
+    .day.selected .dayoff-chip{background:rgba(255,255,255,.2);color:#fff}
+
 
     .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
     .stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}
@@ -336,7 +346,22 @@ function renderCalendar(){
   const today=localDateISO();
 
   const counts={};
-  monthSchedules.forEach(s=>counts[s.event_date]=(counts[s.event_date]||0)+1);
+  const dayOffs={};
+
+  monthSchedules.forEach(s=>{
+    counts[s.event_date]=(counts[s.event_date]||0)+1;
+
+    if(isDayOffType(s.event_type_id)){
+      const member=findById(masters.members,s.member_id);
+      const et=findById(masters.event_types,s.event_type_id);
+      if(!dayOffs[s.event_date]) dayOffs[s.event_date]=[];
+      dayOffs[s.event_date].push({
+        member:labelOf(member,''),
+        type:labelOf(et,'休み'),
+        color:colorOf(et)
+      });
+    }
+  });
 
   let html='';
   for(let i=0;i<42;i++){
@@ -358,9 +383,17 @@ function renderCalendar(){
     if(iso===today) classes.push('today');
     if(iso===selectedDate) classes.push('selected');
     const count=counts[iso]||0;
+    const leaves=dayOffs[iso]||[];
+    const leaveHtml=leaves.length
+      ? `<span class="dayoff-list">${leaves.slice(0,2).map(x=>
+          `<span class="dayoff-chip" style="border-left:3px solid ${esc(x.color)}">${esc(x.member)} ${esc(x.type)}</span>`
+        ).join('')}${leaves.length>2?`<span class="dayoff-chip">ほか${leaves.length-2}件</span>`:''}</span>`
+      : '';
+
     html+=`<button type="button" class="${classes.join(' ')}" data-date="${iso}">
       <span class="daynum">${day}</span>
       ${count?`<span class="count">${count}</span>`:''}
+      ${leaveHtml}
     </button>`;
   }
   $('calendar').innerHTML=html;
