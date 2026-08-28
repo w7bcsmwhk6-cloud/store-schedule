@@ -175,7 +175,7 @@
 </div>
 
 <dialog id="scheduleDialog">
-  <form id="scheduleForm" class="modal" method="dialog">
+  <form id="scheduleForm" class="modal">
     <h2 id="dialogTitle">予定を追加</h2>
     <input type="hidden" id="scheduleId">
 
@@ -204,7 +204,7 @@
     <div class="actions">
       <button type="button" id="deleteBtn" class="danger hidden">削除</button>
       <button type="button" id="cancelBtn" class="ghost">キャンセル</button>
-      <button type="submit" id="saveBtn">保存</button>
+      <button type="button" id="saveBtn">保存</button>
     </div>
   </form>
 </dialog>
@@ -611,13 +611,38 @@ async function hasMemberConflict(p,id){
 }
 
 async function saveSchedule(ev){
-  ev.preventDefault();
-  $('saveBtn').disabled=true;
+  if(ev) ev.preventDefault();
+
   $('formStatus').className='status';
-  $('formStatus').textContent='確認中…';
+  $('formStatus').textContent='';
 
   const id=$('scheduleId').value;
   const p=payload();
+  const dayOff=isDayOffType(p.event_type_id);
+
+  if(!p.event_date){
+    $('formStatus').className='status error';
+    $('formStatus').textContent='日付を選択してください。';
+    return;
+  }
+  if(!p.member_id){
+    $('formStatus').className='status error';
+    $('formStatus').textContent='担当者を選択してください。';
+    return;
+  }
+  if(!p.event_type_id){
+    $('formStatus').className='status error';
+    $('formStatus').textContent='予定種類を選択してください。';
+    return;
+  }
+  if(!dayOff && !p.start_time){
+    $('formStatus').className='status error';
+    $('formStatus').textContent='開始時間を入力してください。';
+    return;
+  }
+
+  $('saveBtn').disabled=true;
+  $('formStatus').textContent='確認中…';
 
   if(p.loaner_id){
     const check=await hasLoanerConflict(p,id);
@@ -709,7 +734,7 @@ $('todayBtn').addEventListener('click',goToday);
 $('refreshBtn').addEventListener('click',async()=>{await loadMasters();await loadMonth()});
 $('addBtn').addEventListener('click',openNew);
 $('cancelBtn').addEventListener('click',()=>dialog.close());
-$('scheduleForm').addEventListener('submit',saveSchedule);
+$('saveBtn').addEventListener('click',saveSchedule);
 $('deleteBtn').addEventListener('click',deleteSchedule);
 $('eventTypeId').addEventListener('change',updateDayOffFields);
 document.querySelectorAll('.tab').forEach(tab=>{
