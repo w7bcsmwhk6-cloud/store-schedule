@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: customer-crm-plus-1 -->
+  <!-- version: customer-vehicles-v2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -335,10 +335,36 @@
   </div>
 </dialog>
 
+<dialog id="customerVehicleDialog">
+  <div class="modal">
+    <h2 id="customerVehicleTitle">車両を追加</h2>
+    <input type="hidden" id="customerVehicleEditId">
+    <div class="field"><label>車種</label><select id="cvVehicleId"><option value="">車種を選択</option></select></div>
+    <div class="field"><label>EV / PHEV</label><select id="cvPowertrain"><option value="">選択</option><option value="EV">EV</option><option value="PHEV">PHEV</option></select></div>
+    <div class="field"><label>車検満了日</label><input id="cvExpiry" type="date"></div>
+    <div id="cvInspectionInfo" class="customer-info-box">満了日とEV/PHEVから点検時期を自動計算します。</div>
+    <div class="field"><label>車両メモ</label><textarea id="cvMemo" rows="3"></textarea></div>
+    <div class="actions"><button id="saveCustomerVehicleBtn" type="button">保存</button><button id="cancelCustomerVehicleBtn" type="button" class="ghost">閉じる</button></div>
+  </div>
+</dialog>
+
+<dialog id="renewExpiryDialog">
+  <div class="modal">
+    <h2>車検満了日を更新</h2>
+    <div id="renewVehicleLabel" class="customer-info-box"></div>
+    <div class="field"><label>新しい車検満了日</label><input id="renewExpiryDate" type="date"></div>
+    <div class="actions"><button id="saveRenewExpiryBtn" type="button">満了日を更新</button><button id="cancelRenewExpiryBtn" type="button" class="ghost">閉じる</button></div>
+  </div>
+</dialog>
+
 <dialog id="customerDetailDialog">
   <div class="modal">
     <h2 id="customerDetailTitle">顧客履歴</h2>
     <div id="customerDetailInfo" class="customer-info-box"></div>
+    <div class="history-section">
+      <div class="row"><b class="grow">登録車両</b><button id="addCustomerVehicleBtn" type="button">＋ 車両追加</button></div>
+      <div id="customerVehicleList"></div>
+    </div>
     <div class="history-section"><b>今後の予定</b><div id="customerFutureList"></div></div>
     <div class="history-section"><b>過去の履歴</b><div id="customerPastList"></div></div>
     <div class="actions">
@@ -357,38 +383,12 @@
       <input type="hidden" id="customerEditId">
       <div class="field"><label>名前</label><input id="ledgerCustomerName" placeholder="必須"></div>
       <div class="field"><label>電話番号</label><input id="ledgerCustomerPhone" type="tel" placeholder="任意"></div>
-      <div class="grid2">
-        <div class="field"><label>車検満了日</label><input id="ledgerInspectionExpiry" type="date"></div>
-        <div class="field"><label>駆動方式</label>
-          <select id="ledgerPowertrain">
-            <option value="">未設定</option>
-            <option value="EV">EV</option>
-            <option value="PHEV">PHEV</option>
-          </select>
-        </div>
-      </div>
-      <div id="autoInspectionInfo" class="customer-info-box">車検満了日とEV/PHEVを登録すると初回点検日を自動計算します。</div>
-      <div class="grid2">
-        <div class="field"><label>次回点検時期</label><input id="ledgerNextInspection" type="date"></div>
-        <div class="field"><label>点検項目</label>
-          <select id="ledgerInspectionType">
-            <option value="">未設定</option>
-            <option value="車検">車検</option>
-            <option value="12ヶ月点検">12ヶ月点検</option>
-            <option value="初回点検">初回点検</option>
-          </select>
-        </div>
-      </div>
       <div class="field"><label>担当スタッフ</label><select id="ledgerMemberId"><option value="">未設定</option></select></div>
-      <div class="field"><label>車種（主車両）</label><select id="ledgerVehicleId"><option value="">未設定</option></select></div>
-      <div class="grid2">
-        <div class="field"><label>点検フォロー状況</label>
-          <select id="ledgerFollowupStatus">
-            <option value="未連絡">未連絡</option><option value="連絡済">連絡済</option>
-            <option value="予約済">予約済</option><option value="完了">完了</option>
-          </select>
-        </div>
-        <div class="field"><label>追加車両</label><input id="ledgerExtraVehicle" placeholder="例：RACCO / EV"></div>
+      <div class="field"><label>点検フォロー状況</label>
+        <select id="ledgerFollowupStatus">
+          <option value="未連絡">未連絡</option><option value="連絡済">連絡済</option>
+          <option value="予約済">予約済</option><option value="完了">完了</option>
+        </select>
       </div>
       <div class="field"><label>顧客メモ</label><textarea id="ledgerMemo" rows="4" placeholder="連絡希望時間、相談内容など"></textarea></div>
       <div class="row">
@@ -522,7 +522,7 @@ let visibleMonth = new Date(selectedDate + 'T00:00:00');
 visibleMonth.setDate(1);
 
 const $ = id => document.getElementById(id);
-const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog'), settingsDialog=$('settingsDialog'), customerLedgerDialog=$('customerLedgerDialog'), inspectionDialog=$('inspectionDialog'), customerDetailDialog=$('customerDetailDialog'), followupDialog=$('followupDialog');
+const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog'), settingsDialog=$('settingsDialog'), customerLedgerDialog=$('customerLedgerDialog'), inspectionDialog=$('inspectionDialog'), customerDetailDialog=$('customerDetailDialog'), followupDialog=$('followupDialog'), customerVehicleDialog=$('customerVehicleDialog'), renewExpiryDialog=$('renewExpiryDialog');
 
 function localDateISO(d=new Date()){
   const x=new Date(d.getTime()-d.getTimezoneOffset()*60000);
@@ -600,7 +600,7 @@ async function login(){
 async function logout(){ await sb.auth.signOut(); showLogin(); }
 
 async function loadMasters(){
-  const names=['members','event_types','vehicles','loaners','customers'];
+  const names=['members','event_types','vehicles','loaners','customers','customer_vehicles'];
   for(const name of names){
     const {data,error}=await sb.from(name).select('*').order('id',{ascending:true});
     masters[name]=error?[]:(data||[]);
@@ -616,7 +616,7 @@ async function loadMasters(){
       masters.customers.map(c=>`<option value="${esc(c.id)}">${esc(labelOf(c))}${c.phone?' / '+esc(c.phone):''}</option>`).join('');
   }
   if($('ledgerMemberId')) $('ledgerMemberId').innerHTML='<option value="">未設定</option>'+masters.members.map(x=>`<option value="${esc(x.id)}">${esc(labelOf(x))}</option>`).join('');
-  if($('ledgerVehicleId')) $('ledgerVehicleId').innerHTML='<option value="">未設定</option>'+masters.vehicles.map(x=>`<option value="${esc(x.id)}">${esc(labelOf(x))}</option>`).join('');
+  if($('cvVehicleId')) $('cvVehicleId').innerHTML='<option value="">車種を選択</option>'+masters.vehicles.map(x=>`<option value="${esc(x.id)}">${esc(labelOf(x))}</option>`).join('');
   fillTimeSelects();
 }
 function fillSelect(id,arr,placeholder){
@@ -1239,28 +1239,19 @@ function updateSelectedCustomerInfo(){
   $('customerName').value=c.name||'';
   $('customerPhone').value=c.phone||'';
   if(c.member_id) $('memberId').value=c.member_id;
-  if(c.vehicle_id) $('vehicleId').value=c.vehicle_id;
-  const parts=[];
-  if(c.next_inspection_date) parts.push(`次回点検：${c.inspection_type?c.inspection_type+' / ':''}${String(c.next_inspection_date).replaceAll('-','/')}`);
-  else parts.push('次回点検：未登録');
-  if(c.inspection_expiry_date) parts.push(`車検満了日：${String(c.inspection_expiry_date).replaceAll('-','/')}`);
-  if(c.memo) parts.push(`メモ：${c.memo}`);
+  const cvs=masters.customer_vehicles.filter(v=>String(v.customer_id)===String(c.id));
+  if(cvs.length&&cvs[0].vehicle_id) $('vehicleId').value=cvs[0].vehicle_id;
+  const parts=[`登録車両：${cvs.length}台`];
+  if(c.memo)parts.push(`メモ：${c.memo}`);
   $('selectedCustomerInfo').textContent=parts.join('\n');
 }
 function resetCustomerForm(){
   $('customerEditId').value='';
   $('ledgerCustomerName').value='';
   $('ledgerCustomerPhone').value='';
-  $('ledgerInspectionExpiry').value='';
-  $('ledgerPowertrain').value='';
-  $('ledgerNextInspection').value='';
-  $('ledgerInspectionType').value='';
   $('ledgerMemo').value='';
   $('ledgerFollowupStatus').value='未連絡';
-  $('ledgerExtraVehicle').value='';
-  updateAutoInspectionInfo(false);
   $('ledgerMemberId').value='';
-  $('ledgerVehicleId').value='';
   $('customerFormTitle').textContent='顧客を追加';
   $('saveCustomerBtn').textContent='顧客を追加';
   $('cancelCustomerEditBtn').classList.add('hidden');
@@ -1270,22 +1261,16 @@ async function saveCustomer(){
   const id=$('customerEditId').value;
   const name=$('ledgerCustomerName').value.trim();
   const phone=$('ledgerCustomerPhone').value.trim()||null;
-  const inspection_expiry_date=$('ledgerInspectionExpiry').value||null;
-  const powertrain=$('ledgerPowertrain').value||null;
-  const next_inspection_date=$('ledgerNextInspection').value||null;
-  const inspection_type=$('ledgerInspectionType').value||null;
   const memo=$('ledgerMemo').value.trim()||null;
   const followup_status=$('ledgerFollowupStatus').value||'未連絡';
-  const extra_vehicle=$('ledgerExtraVehicle').value.trim()||null;
   const member_id=$('ledgerMemberId').value||null;
-  const vehicle_id=$('ledgerVehicleId').value||null;
   if(!name){$('customerFormStatus').className='status error';$('customerFormStatus').textContent='名前を入力してください。';return}
 
   $('saveCustomerBtn').disabled=true;
   $('customerFormStatus').className='status';
   $('customerFormStatus').textContent=id?'更新中…':'追加中…';
 
-  const payload={name,phone,inspection_expiry_date,powertrain,next_inspection_date,inspection_type,member_id,vehicle_id,memo,followup_status,extra_vehicle};
+  const payload={name,phone,member_id,memo,followup_status};
   const res=id
     ? await sb.from('customers').update(payload).eq('id',id)
     : await sb.from('customers').insert(payload);
@@ -1304,18 +1289,8 @@ function editCustomer(id){
   const c=findById(masters.customers,id); if(!c)return;
   $('customerEditId').value=c.id;
   $('ledgerCustomerName').value=c.name||'';
-  $('ledgerCustomerPhone').value=c.phone||'';
-  $('ledgerInspectionExpiry').value=c.inspection_expiry_date||'';
-  $('ledgerPowertrain').value=c.powertrain||'';
-  $('ledgerNextInspection').value=c.next_inspection_date||'';
-  $('ledgerInspectionType').value=c.inspection_type||'';
-  $('ledgerMemo').value=c.memo||'';
-  $('ledgerFollowupStatus').value=c.followup_status||'未連絡';
-  $('ledgerExtraVehicle').value=c.extra_vehicle||'';
-  updateAutoInspectionInfo(false);
-  $('ledgerMemberId').value=c.member_id||'';
-  $('ledgerVehicleId').value=c.vehicle_id||'';
-  $('customerFormTitle').textContent='顧客を編集';
+  $('ledgerCustomerPhone').value=c.phone||'';  $('ledgerMemo').value=c.memo||'';
+  $('ledgerFollowupStatus').value=c.followup_status||'未連絡';  $('ledgerMemberId').value=c.member_id||'';  $('customerFormTitle').textContent='顧客を編集';
   $('saveCustomerBtn').textContent='変更を保存';
   $('cancelCustomerEditBtn').classList.remove('hidden');
 }
@@ -1389,18 +1364,15 @@ async function renderCustomerLedger(){
       }
     }
     const member=labelOf(findById(masters.members,c.member_id));
-    const vehicle=labelOf(findById(masters.vehicles,c.vehicle_id));
+    const cvs=masters.customer_vehicles.filter(v=>String(v.customer_id)===String(c.id));
+    const vehicle=cvs.map(v=>labelOf(findById(masters.vehicles,v.vehicle_id))).filter(Boolean).join('・');
     return `<div class="ledger-card">
       <div class="ledger-head">
         <div>
           <b>${esc(c.name||'名称なし')}</b>
           <div class="small">${c.phone?`<a class="phone-link" href="tel:${esc(c.phone)}">TEL ${esc(c.phone)}</a>`:'電話番号なし'} / 予定 ${count}件</div>
-          <div class="small">${member?'担当：'+esc(member):'担当：未設定'}${vehicle?' / 車種：'+esc(vehicle):''}</div>
-          ${c.inspection_expiry_date?`<div class="small">車検満了日：${esc(String(c.inspection_expiry_date).replaceAll('-','/'))}${c.powertrain?' / '+esc(c.powertrain):''}</div>`:''}
-          ${c.extra_vehicle?`<div class="small">追加車両：${esc(c.extra_vehicle)}</div>`:''}
-          <div class="small">フォロー：${esc(c.followup_status||'未連絡')}</div>
-          <div class="${cls||'small'}">${esc(inspection)}</div>
-          ${c.inspection_type?`<span class="inspection-kind">${esc(c.inspection_type)}</span>`:''}
+          <div class="small">${member?'担当：'+esc(member):'担当：未設定'}${vehicle?' / 車種：'+esc(vehicle):''}</div>${c.powertrain?' / '+esc(c.powertrain):''}</div>`:''}</div>`:''}
+          <div class="small">フォロー：${esc(c.followup_status||'未連絡')}</div></span>`:''}
           ${nextCustomerSchedule(c)?`<div class="customer-next">次回予定：${esc(scheduleLine(nextCustomerSchedule(c)))}</div>`:'<div class="small">次回予定：なし</div>'}
           ${c.memo?`<div class="customer-note">${esc(c.memo)}</div>`:''}
           <button type="button" class="customer-plan-btn ledger-plan" data-id="${esc(c.id)}">この顧客の予定を追加</button>
@@ -1430,20 +1402,21 @@ function firstInspectionDate(expiry,powertrain){
   if(!expiry||!powertrain)return '';
   return addMonthsISO(expiry,powertrain==='EV'?-30:-33);
 }
-function updateAutoInspectionInfo(apply=false){
-  const expiry=$('ledgerInspectionExpiry')?.value||'';
-  const power=$('ledgerPowertrain')?.value||'';
-  const first=firstInspectionDate(expiry,power);
-  if(!expiry||!power){
-    $('autoInspectionInfo').textContent='車検満了日とEV/PHEVを登録すると初回点検日を自動計算します。';
-    return;
+function vehicleInspections(v){
+  if(!v.inspection_expiry_date)return [];
+  const a=[];
+  if(v.powertrain){
+    const f=firstInspectionDate(v.inspection_expiry_date,v.powertrain);
+    if(f)a.push({type:'初回点検',date:f});
   }
-  const annual=addMonthsISO(expiry,-24);
-  $('autoInspectionInfo').textContent=`初回点検：${first.replaceAll('-','/')}（${power}）\n12ヶ月点検目安：${annual.replaceAll('-','/')}\n車検：${expiry.replaceAll('-','/')}`;
-  if(apply){
-    $('ledgerNextInspection').value=first;
-    $('ledgerInspectionType').value='初回点検';
-  }
+  a.push({type:'12ヶ月点検',date:addMonthsISO(v.inspection_expiry_date,-24)});
+  a.push({type:'車検',date:v.inspection_expiry_date});
+  return a;
+}
+function updateCVInfo(){
+  const expiry=$('cvExpiry').value,power=$('cvPowertrain').value;
+  if(!expiry||!power){$('cvInspectionInfo').textContent='満了日とEV/PHEVから点検時期を自動計算します。';return}
+  $('cvInspectionInfo').textContent=`初回点検：${firstInspectionDate(expiry,power).replaceAll('-','/')}（${power}）\n12ヶ月点検：${addMonthsISO(expiry,-24).replaceAll('-','/')}\n車検：${expiry.replaceAll('-','/')}`;
 }
 function inspectionTypeId(name){
   const x=masters.event_types.find(e=>labelOf(e)===name);
@@ -1467,23 +1440,67 @@ async function openCustomerDetail(id){
   detailCustomerId=String(id);
   const {data,error}=await sb.from('schedules').select('*').eq('customer_id',id).order('event_date',{ascending:true}).order('start_time',{ascending:true});
   if(error){alert(error.message);return}
-  const today=localDateISO(), all=data||[];
-  const future=all.filter(s=>s.event_date>=today);
-  const past=all.filter(s=>s.event_date<today).reverse();
+  const today=localDateISO(), all=data||[], future=all.filter(s=>s.event_date>=today), past=all.filter(s=>s.event_date<today).reverse();
   const member=labelOf(findById(masters.members,c.member_id));
-  const vehicle=labelOf(findById(masters.vehicles,c.vehicle_id));
   $('customerDetailTitle').textContent=c.name||'顧客履歴';
-  $('customerDetailInfo').innerHTML=
-    `${c.phone?`<a class="phone-link" href="tel:${esc(c.phone)}">${esc(c.phone)}</a>`:'電話番号なし'}<br>`+
-    `${member?'担当：'+esc(member)+'<br>':''}${vehicle?'車種：'+esc(vehicle)+'<br>':''}`+
-    `${c.inspection_expiry_date?'車検満了日：'+esc(String(c.inspection_expiry_date).replaceAll('-','/'))+'<br>':''}`+
-    `${c.powertrain?'駆動方式：'+esc(c.powertrain)+'<br>':''}`+
-    `${c.inspection_type&&c.next_inspection_date?'次回点検：'+esc(c.inspection_type)+' / '+esc(String(c.next_inspection_date).replaceAll('-','/'))+'<br>':''}`+
-    `${c.memo?'メモ：'+esc(c.memo):''}`;
+  $('customerDetailInfo').innerHTML=`${c.phone?`<a class="phone-link" href="tel:${esc(c.phone)}">${esc(c.phone)}</a>`:'電話番号なし'}<br>${member?'担当：'+esc(member)+'<br>':''}${c.memo?'メモ：'+esc(c.memo):''}`;
+  renderCustomerVehicles(id);
   const item=s=>`<div class="history-item">${esc(scheduleLine(s))}</div>`;
   $('customerFutureList').innerHTML=future.map(item).join('')||'<div class="empty">今後の予定はありません</div>';
   $('customerPastList').innerHTML=past.map(item).join('')||'<div class="empty">過去の履歴はありません</div>';
   customerDetailDialog.showModal();
+}
+function renderCustomerVehicles(customerId){
+  const vs=masters.customer_vehicles.filter(v=>String(v.customer_id)===String(customerId));
+  $('customerVehicleList').innerHTML=vs.map(v=>{
+    const name=labelOf(findById(masters.vehicles,v.vehicle_id))||'車種未設定';
+    const ins=vehicleInspections(v).map(i=>`${i.type} ${i.date.replaceAll('-','/')}`).join(' / ');
+    return `<div class="history-item"><b>${esc(name)}</b>${v.powertrain?' / '+esc(v.powertrain):''}
+      ${v.inspection_expiry_date?`<br>車検満了：${esc(v.inspection_expiry_date.replaceAll('-','/'))}`:''}
+      ${ins?`<br><span class="small">${esc(ins)}</span>`:''}${v.memo?`<div class="customer-note">${esc(v.memo)}</div>`:''}
+      <div class="row" style="margin-top:7px"><button class="secondary cv-edit" data-id="${v.id}">編集</button>
+      <button class="cv-renew" data-id="${v.id}">車検実施・満了日更新</button>
+      <button class="danger cv-delete" data-id="${v.id}">削除</button></div></div>`;
+  }).join('')||'<div class="empty">登録車両はありません</div>';
+  $('customerVehicleList').querySelectorAll('.cv-edit').forEach(b=>b.onclick=()=>openCustomerVehicle(b.dataset.id));
+  $('customerVehicleList').querySelectorAll('.cv-renew').forEach(b=>b.onclick=()=>openRenewExpiry(b.dataset.id));
+  $('customerVehicleList').querySelectorAll('.cv-delete').forEach(b=>b.onclick=()=>deleteCustomerVehicle(b.dataset.id));
+}
+function openCustomerVehicle(id=''){
+  const v=id?findById(masters.customer_vehicles,id):null;
+  $('customerVehicleEditId').value=v?.id||'';
+  $('customerVehicleTitle').textContent=v?'車両を編集':'車両を追加';
+  $('cvVehicleId').value=v?.vehicle_id||'';
+  $('cvPowertrain').value=v?.powertrain||'';
+  $('cvExpiry').value=v?.inspection_expiry_date||'';
+  $('cvMemo').value=v?.memo||'';
+  updateCVInfo();customerVehicleDialog.showModal();
+}
+async function saveCustomerVehicle(){
+  if(!detailCustomerId)return;
+  const id=$('customerVehicleEditId').value;
+  const payload={customer_id:detailCustomerId,vehicle_id:$('cvVehicleId').value||null,powertrain:$('cvPowertrain').value||null,inspection_expiry_date:$('cvExpiry').value||null,memo:$('cvMemo').value.trim()||null};
+  const r=id?await sb.from('customer_vehicles').update(payload).eq('id',id):await sb.from('customer_vehicles').insert(payload);
+  if(r.error){alert(r.error.message);return}
+  await loadMasters();customerVehicleDialog.close();renderCustomerVehicles(detailCustomerId);
+}
+async function deleteCustomerVehicle(id){
+  if(!confirm('この車両を削除しますか？'))return;
+  const r=await sb.from('customer_vehicles').delete().eq('id',id);if(r.error){alert(r.error.message);return}
+  await loadMasters();renderCustomerVehicles(detailCustomerId);
+}
+let renewVehicleId=null;
+function openRenewExpiry(id){
+  const v=findById(masters.customer_vehicles,id);if(!v)return;renewVehicleId=id;
+  const name=labelOf(findById(masters.vehicles,v.vehicle_id))||'車両';
+  $('renewVehicleLabel').textContent=`${name}${v.inspection_expiry_date?' / 現在の満了日 '+v.inspection_expiry_date.replaceAll('-','/'):''}`;
+  $('renewExpiryDate').value='';renewExpiryDialog.showModal();
+}
+async function saveRenewExpiry(){
+  const d=$('renewExpiryDate').value;if(!renewVehicleId||!d){alert('新しい車検満了日を入力してください。');return}
+  const r=await sb.from('customer_vehicles').update({inspection_expiry_date:d}).eq('id',renewVehicleId);
+  if(r.error){alert(r.error.message);return}
+  await loadMasters();renewExpiryDialog.close();renderCustomerVehicles(detailCustomerId);
 }
 function openScheduleForCustomer(id,inspectionType=''){
   const c=findById(masters.customers,id); if(!c)return;
@@ -1504,69 +1521,53 @@ let inspectionRange='this';
 let inspectionKind='all';
 function monthKey(dateStr){return String(dateStr||'').slice(0,7)}
 function renderInspectionList(){
-  const now=new Date(), today=localDateISO();
+  const now=new Date(),today=localDateISO();
   const thisKey=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  const n=new Date(now.getFullYear(),now.getMonth()+1,1);
-  const nextKey=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
+  const n=new Date(now.getFullYear(),now.getMonth()+1,1),nextKey=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
   let rows=[];
-  masters.customers.forEach(c=>derivedInspections(c).forEach(i=>rows.push({...c,_inspection_type:i.type,_inspection_date:i.date})));
-  if(inspectionRange==='this') rows=rows.filter(c=>monthKey(c._inspection_date)===thisKey);
-  if(inspectionRange==='next') rows=rows.filter(c=>monthKey(c._inspection_date)===nextKey);
-  if(inspectionRange==='overdue') rows=rows.filter(c=>c._inspection_date<today);
-  if(inspectionKind!=='all') rows=rows.filter(c=>c._inspection_type===inspectionKind);
-  rows.sort((a,b)=>String(a._inspection_date).localeCompare(String(b._inspection_date)));
-
-  $('inspectionList').innerHTML=rows.map(c=>{
-    const member=labelOf(findById(masters.members,c.member_id));
-    const vehicle=labelOf(findById(masters.vehicles,c.vehicle_id));
-    const overdue=c._inspection_date<today;
-    return `<div class="inspection-card">
-      <b>${esc(c.name)}</b>
-      <div class="${overdue?'inspection-overdue':'small'}">点検：${esc(String(c._inspection_date).replaceAll('-','/'))}</div>
-      <span class="inspection-kind">${esc(c._inspection_type)}</span>
-      ${c.inspection_expiry_date?`<div class="small">車検満了：${esc(String(c.inspection_expiry_date).replaceAll('-','/'))}${c.powertrain?' / '+esc(c.powertrain):''}</div>`:''}
-      <div class="small">${c.phone?`<a class="phone-link" href="tel:${esc(c.phone)}">TEL ${esc(c.phone)}</a>`:'電話番号なし'}${member?' / '+esc(member):''}${vehicle?' / '+esc(vehicle):''}</div>
-      <button type="button" class="customer-plan-btn inspection-plan" data-id="${esc(c.id)}" data-type="${esc(c._inspection_type||c.inspection_type||'')}">予定を追加</button>
+  masters.customer_vehicles.forEach(v=>{
+    const c=findById(masters.customers,v.customer_id);if(!c)return;
+    vehicleInspections(v).forEach(i=>rows.push({...i,customer:c,cv:v}));
+  });
+  if(inspectionRange==='this')rows=rows.filter(r=>monthKey(r.date)===thisKey);
+  if(inspectionRange==='next')rows=rows.filter(r=>monthKey(r.date)===nextKey);
+  if(inspectionRange==='overdue')rows=rows.filter(r=>r.date<today);
+  if(inspectionKind!=='all')rows=rows.filter(r=>r.type===inspectionKind);
+  rows.sort((a,b)=>a.date.localeCompare(b.date));
+  $('inspectionList').innerHTML=rows.map(r=>{
+    const c=r.customer,v=r.cv,name=labelOf(findById(masters.vehicles,v.vehicle_id))||'車種未設定';
+    const member=labelOf(findById(masters.members,c.member_id)),over=r.date<today;
+    return `<div class="inspection-card"><b>${esc(c.name)} / ${esc(name)}</b>
+      <div class="${over?'inspection-overdue':'small'}">点検：${esc(r.date.replaceAll('-','/'))}</div>
+      <span class="inspection-kind">${esc(r.type)}</span>
+      <div class="small">車検満了：${esc(v.inspection_expiry_date?.replaceAll('-','/')||'未登録')}${v.powertrain?' / '+esc(v.powertrain):''}${member?' / '+esc(member):''}</div>
+      ${c.phone?`<a class="phone-link" href="tel:${esc(c.phone)}">TEL ${esc(c.phone)}</a><br>`:''}
+      <button type="button" class="customer-plan-btn inspection-plan" data-id="${c.id}" data-type="${esc(r.type)}">予定を追加</button>
+      ${r.type==='車検'?`<button type="button" class="customer-plan-btn inspection-renew secondary" data-vid="${v.id}">車検実施・満了日更新</button>`:''}
     </div>`;
   }).join('')||'<div class="empty">対象のお客様はいません</div>';
   $('inspectionList').querySelectorAll('.inspection-plan').forEach(b=>b.onclick=()=>openScheduleForCustomer(b.dataset.id,b.dataset.type));
-}
-function derivedInspections(c){
-  if(!c.inspection_expiry_date)return [];
-  const a=[];
-  if(c.powertrain){
-    const f=firstInspectionDate(c.inspection_expiry_date,c.powertrain);
-    if(f)a.push({type:'初回点検',date:f});
-  }
-  a.push({type:'12ヶ月点検',date:addMonthsISO(c.inspection_expiry_date,-24)});
-  a.push({type:'車検',date:c.inspection_expiry_date});
-  return a;
+  $('inspectionList').querySelectorAll('.inspection-renew').forEach(b=>b.onclick=()=>openRenewExpiry(b.dataset.vid));
 }
 function renderFollowups(){
   const rows=masters.customers.filter(c=>(c.followup_status||'未連絡')!=='完了');
-  const groups={};
-  rows.forEach(c=>{
-    const m=labelOf(findById(masters.members,c.member_id))||'担当未設定';
-    (groups[m]||(groups[m]=[])).push(c);
-  });
-  $('followupList').innerHTML=Object.entries(groups).map(([m,cs])=>`
-    <div class="history-section"><b>${esc(m)}：${cs.length}件</b>
-    ${cs.map(c=>`<div class="history-item"><b>${esc(c.name)}</b> / ${esc(c.followup_status||'未連絡')}
-    ${c.next_inspection_date?' / '+esc(String(c.next_inspection_date).replaceAll('-','/')):''}
-    ${c.phone?`<br><a class="phone-link" href="tel:${esc(c.phone)}">電話する</a>`:''}</div>`).join('')}</div>`).join('')||'<div class="empty">未完了のフォローはありません</div>';
+  const groups={};rows.forEach(c=>{const m=labelOf(findById(masters.members,c.member_id))||'担当未設定';(groups[m]||(groups[m]=[])).push(c)});
+  const nextIns=c=>masters.customer_vehicles.filter(v=>String(v.customer_id)===String(c.id)).flatMap(vehicleInspections).sort((a,b)=>a.date.localeCompare(b.date))[0];
+  $('followupList').innerHTML=Object.entries(groups).map(([m,cs])=>`<div class="history-section"><b>${esc(m)}：${cs.length}件</b>
+    ${cs.map(c=>{const ni=nextIns(c);return `<div class="history-item"><b>${esc(c.name)}</b> / ${esc(c.followup_status||'未連絡')}${ni?' / '+esc(ni.type)+' '+esc(ni.date.replaceAll('-','/')):''}${c.phone?`<br><a class="phone-link" href="tel:${esc(c.phone)}">電話する</a>`:''}</div>`}).join('')}</div>`).join('')||'<div class="empty">未完了のフォローはありません</div>';
 }
 function openFollowups(){renderFollowups();followupDialog.showModal();}
 function csvCell(v){const s=String(v??'');return '"'+s.replaceAll('"','""')+'"'}
 function downloadCSV(){
-  const heads=['顧客名','電話番号','担当','主車種','追加車両','EV/PHEV','車検満了日','次回点検','点検項目','フォロー状況','メモ'];
-  const rows=masters.customers.map(c=>[
-    c.name,c.phone,labelOf(findById(masters.members,c.member_id)),labelOf(findById(masters.vehicles,c.vehicle_id)),
-    c.extra_vehicle,c.powertrain,c.inspection_expiry_date,c.next_inspection_date,c.inspection_type,c.followup_status,c.memo
-  ]);
+  const heads=['顧客名','電話番号','担当','車種','EV/PHEV','車検満了日','フォロー状況','顧客メモ','車両メモ'];
+  const rows=[];
+  masters.customers.forEach(c=>{
+    const vs=masters.customer_vehicles.filter(v=>String(v.customer_id)===String(c.id));
+    if(!vs.length)rows.push([c.name,c.phone,labelOf(findById(masters.members,c.member_id)),'','','',c.followup_status,c.memo,'']);
+    vs.forEach(v=>rows.push([c.name,c.phone,labelOf(findById(masters.members,c.member_id)),labelOf(findById(masters.vehicles,v.vehicle_id)),v.powertrain,v.inspection_expiry_date,c.followup_status,c.memo,v.memo]));
+  });
   const csv='﻿'+[heads,...rows].map(r=>r.map(csvCell).join(',')).join('\r\n');
-  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
-  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
-  a.download=`顧客台帳_${localDateISO()}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`顧客車両台帳_${localDateISO()}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 function openInspectionList(){
   inspectionRange='this';
@@ -1802,10 +1803,15 @@ async function deleteSchedule(){
 
 $('loginBtn').addEventListener('click',login);
 $('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
-$('ledgerInspectionExpiry').addEventListener('change',()=>updateAutoInspectionInfo(true));
-$('ledgerPowertrain').addEventListener('change',()=>updateAutoInspectionInfo(true));
 $('closeCustomerDetailBtn').addEventListener('click',()=>customerDetailDialog.close());
 $('customerDetailPlanBtn').addEventListener('click',()=>{if(detailCustomerId)openScheduleForCustomer(detailCustomerId);});
+$('addCustomerVehicleBtn').addEventListener('click',()=>openCustomerVehicle());
+$('saveCustomerVehicleBtn').addEventListener('click',saveCustomerVehicle);
+$('cancelCustomerVehicleBtn').addEventListener('click',()=>customerVehicleDialog.close());
+$('cvExpiry').addEventListener('change',updateCVInfo);
+$('cvPowertrain').addEventListener('change',updateCVInfo);
+$('saveRenewExpiryBtn').addEventListener('click',saveRenewExpiry);
+$('cancelRenewExpiryBtn').addEventListener('click',()=>renewExpiryDialog.close());
 $('followupBtn').addEventListener('click',openFollowups);
 $('backupBtn').addEventListener('click',downloadCSV);
 $('closeFollowupBtn').addEventListener('click',()=>followupDialog.close());
