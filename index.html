@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: customer-service-1 -->
+  <!-- version: inspection-type-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -167,6 +167,10 @@
     .inspection-tabs button.active{background:#2563eb;color:#fff}
     .inspection-list{max-height:60vh;overflow:auto}
     .inspection-card{border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:8px}
+    .inspection-kind{display:inline-block;margin-top:5px;padding:3px 7px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:11px;font-weight:800}
+    .inspection-kind-filter{display:flex;gap:6px;overflow-x:auto;margin:8px 0 10px}
+    .inspection-kind-filter button{white-space:nowrap;padding:7px 10px;font-size:11px;background:#f3f4f6;color:#374151}
+    .inspection-kind-filter button.active{background:#111827;color:#fff}
     .customer-plan-btn{margin-top:7px;padding:7px 10px;font-size:11px}
     .repeat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     @media print{
@@ -304,6 +308,12 @@
       <button type="button" class="inspection-tab" data-range="overdue">期限超過</button>
       <button type="button" class="inspection-tab" data-range="all">すべて</button>
     </div>
+    <div class="inspection-kind-filter">
+      <button type="button" class="inspection-kind-tab active" data-kind="all">全項目</button>
+      <button type="button" class="inspection-kind-tab" data-kind="車検">車検</button>
+      <button type="button" class="inspection-kind-tab" data-kind="12ヶ月点検">12ヶ月点検</button>
+      <button type="button" class="inspection-kind-tab" data-kind="初回点検">初回点検</button>
+    </div>
     <div id="inspectionList" class="inspection-list"></div>
     <div class="actions"><button id="closeInspectionBtn" type="button" class="ghost">閉じる</button></div>
   </div>
@@ -318,7 +328,17 @@
       <input type="hidden" id="customerEditId">
       <div class="field"><label>名前</label><input id="ledgerCustomerName" placeholder="必須"></div>
       <div class="field"><label>電話番号</label><input id="ledgerCustomerPhone" type="tel" placeholder="任意"></div>
-      <div class="field"><label>次回点検時期</label><input id="ledgerNextInspection" type="date"></div>
+      <div class="grid2">
+        <div class="field"><label>次回点検時期</label><input id="ledgerNextInspection" type="date"></div>
+        <div class="field"><label>点検項目</label>
+          <select id="ledgerInspectionType">
+            <option value="">未設定</option>
+            <option value="車検">車検</option>
+            <option value="12ヶ月点検">12ヶ月点検</option>
+            <option value="初回点検">初回点検</option>
+          </select>
+        </div>
+      </div>
       <div class="field"><label>担当スタッフ</label><select id="ledgerMemberId"><option value="">未設定</option></select></div>
       <div class="field"><label>車種</label><select id="ledgerVehicleId"><option value="">未設定</option></select></div>
       <div class="row">
@@ -1171,14 +1191,15 @@ function updateSelectedCustomerInfo(){
   if(c.member_id) $('memberId').value=c.member_id;
   if(c.vehicle_id) $('vehicleId').value=c.vehicle_id;
   $('selectedCustomerInfo').textContent=c.next_inspection_date
-    ? `次回点検時期：${String(c.next_inspection_date).replaceAll('-','/')}`
-    : '次回点検時期：未登録';
+    ? `次回点検：${c.inspection_type?c.inspection_type+' / ':''}${String(c.next_inspection_date).replaceAll('-','/')}`
+    : '次回点検：未登録';
 }
 function resetCustomerForm(){
   $('customerEditId').value='';
   $('ledgerCustomerName').value='';
   $('ledgerCustomerPhone').value='';
   $('ledgerNextInspection').value='';
+  $('ledgerInspectionType').value='';
   $('ledgerMemberId').value='';
   $('ledgerVehicleId').value='';
   $('customerFormTitle').textContent='顧客を追加';
@@ -1191,6 +1212,7 @@ async function saveCustomer(){
   const name=$('ledgerCustomerName').value.trim();
   const phone=$('ledgerCustomerPhone').value.trim()||null;
   const next_inspection_date=$('ledgerNextInspection').value||null;
+  const inspection_type=$('ledgerInspectionType').value||null;
   const member_id=$('ledgerMemberId').value||null;
   const vehicle_id=$('ledgerVehicleId').value||null;
   if(!name){$('customerFormStatus').className='status error';$('customerFormStatus').textContent='名前を入力してください。';return}
@@ -1199,7 +1221,7 @@ async function saveCustomer(){
   $('customerFormStatus').className='status';
   $('customerFormStatus').textContent=id?'更新中…':'追加中…';
 
-  const payload={name,phone,next_inspection_date,member_id,vehicle_id};
+  const payload={name,phone,next_inspection_date,inspection_type,member_id,vehicle_id};
   const res=id
     ? await sb.from('customers').update(payload).eq('id',id)
     : await sb.from('customers').insert(payload);
@@ -1220,6 +1242,7 @@ function editCustomer(id){
   $('ledgerCustomerName').value=c.name||'';
   $('ledgerCustomerPhone').value=c.phone||'';
   $('ledgerNextInspection').value=c.next_inspection_date||'';
+  $('ledgerInspectionType').value=c.inspection_type||'';
   $('ledgerMemberId').value=c.member_id||'';
   $('ledgerVehicleId').value=c.vehicle_id||'';
   $('customerFormTitle').textContent='顧客を編集';
@@ -1304,6 +1327,7 @@ async function renderCustomerLedger(){
           <div class="small">${c.phone?'TEL '+esc(c.phone):'電話番号なし'} / 予定 ${count}件</div>
           <div class="small">${member?'担当：'+esc(member):'担当：未設定'}${vehicle?' / 車種：'+esc(vehicle):''}</div>
           <div class="${cls||'small'}">${esc(inspection)}</div>
+          ${c.inspection_type?`<span class="inspection-kind">${esc(c.inspection_type)}</span>`:''}
           <button type="button" class="customer-plan-btn ledger-plan" data-id="${esc(c.id)}">この顧客の予定を追加</button>
         </div>
         <div class="ledger-actions">
@@ -1329,6 +1353,7 @@ function openScheduleForCustomer(id){
 }
 
 let inspectionRange='this';
+let inspectionKind='all';
 function monthKey(dateStr){return String(dateStr||'').slice(0,7)}
 function renderInspectionList(){
   const now=new Date(), today=localDateISO();
@@ -1339,6 +1364,7 @@ function renderInspectionList(){
   if(inspectionRange==='this') rows=rows.filter(c=>monthKey(c.next_inspection_date)===thisKey);
   if(inspectionRange==='next') rows=rows.filter(c=>monthKey(c.next_inspection_date)===nextKey);
   if(inspectionRange==='overdue') rows=rows.filter(c=>c.next_inspection_date<today);
+  if(inspectionKind!=='all') rows=rows.filter(c=>c.inspection_type===inspectionKind);
   rows.sort((a,b)=>String(a.next_inspection_date).localeCompare(String(b.next_inspection_date)));
 
   $('inspectionList').innerHTML=rows.map(c=>{
@@ -1348,6 +1374,7 @@ function renderInspectionList(){
     return `<div class="inspection-card">
       <b>${esc(c.name)}</b>
       <div class="${overdue?'inspection-overdue':'small'}">点検：${esc(String(c.next_inspection_date).replaceAll('-','/'))}</div>
+      ${c.inspection_type?`<span class="inspection-kind">${esc(c.inspection_type)}</span>`:''}
       <div class="small">${c.phone?'TEL '+esc(c.phone):'電話番号なし'}${member?' / '+esc(member):''}${vehicle?' / '+esc(vehicle):''}</div>
       <button type="button" class="customer-plan-btn inspection-plan" data-id="${esc(c.id)}">予定を追加</button>
     </div>`;
@@ -1356,7 +1383,9 @@ function renderInspectionList(){
 }
 function openInspectionList(){
   inspectionRange='this';
+  inspectionKind='all';
   document.querySelectorAll('.inspection-tab').forEach(b=>b.classList.toggle('active',b.dataset.range==='this'));
+  document.querySelectorAll('.inspection-kind-tab').forEach(b=>b.classList.toggle('active',b.dataset.kind==='all'));
   renderInspectionList();inspectionDialog.showModal();
 }
 
@@ -1591,6 +1620,11 @@ $('closeInspectionBtn').addEventListener('click',()=>inspectionDialog.close());
 document.querySelectorAll('.inspection-tab').forEach(b=>b.addEventListener('click',()=>{
   inspectionRange=b.dataset.range;
   document.querySelectorAll('.inspection-tab').forEach(x=>x.classList.toggle('active',x===b));
+  renderInspectionList();
+}));
+document.querySelectorAll('.inspection-kind-tab').forEach(b=>b.addEventListener('click',()=>{
+  inspectionKind=b.dataset.kind;
+  document.querySelectorAll('.inspection-kind-tab').forEach(x=>x.classList.toggle('active',x===b));
   renderInspectionList();
 }));
 $('customerLedgerBtn').addEventListener('click',openCustomerLedger);
