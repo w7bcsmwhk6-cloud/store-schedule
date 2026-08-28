@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: timeline-drag-time-1 -->
+  <!-- version: timeline-drag-time-member-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -211,7 +211,7 @@
         <button id="timelineRefreshBtn" class="ghost">更新</button>
       </div>
       <div class="small" style="margin-bottom:4px">10:00〜18:00・30分刻み（横にスクロールできます）</div>
-      <div class="timeline-drag-note">予定を左右にドラッグすると、30分刻みで時間を変更できます。</div>
+      <div class="timeline-drag-note">予定を左右にドラッグすると時間変更、上下にドラッグすると担当者変更ができます。</div>
       <div id="timelineTable" class="timeline-wrap"></div>
     </section>
 
@@ -749,7 +749,9 @@ function renderTimelineView(){
       drag={
         pointerId:e.pointerId,
         startX:e.clientX,
+        startY:e.clientY,
         startMinutes:start,
+        newMemberId:String(schedule.member_id),
         duration,
         trackWidth:track.getBoundingClientRect().width,
         moved:false,
@@ -765,7 +767,8 @@ function renderTimelineView(){
       if(!drag || e.pointerId!==drag.pointerId) return;
 
       const dx=e.clientX-drag.startX;
-      if(Math.abs(dx)>5) drag.moved=true;
+      const dy=e.clientY-drag.startY;
+      if(Math.abs(dx)>5 || Math.abs(dy)>5) drag.moved=true;
       if(!drag.moved) return;
 
       e.preventDefault();
@@ -776,6 +779,15 @@ function renderTimelineView(){
 
       drag.newStart=snapped;
       el.style.left=`${(snapped/480)*100}%`;
+
+      const hit=document.elementFromPoint(e.clientX,e.clientY);
+      const target=hit ? hit.closest('.timeline-track') : null;
+      if(target && target.dataset.memberId){
+        drag.newMemberId=String(target.dataset.memberId);
+        $('timelineTable').querySelectorAll('.timeline-track').forEach(t=>t.style.outline='');
+        target.style.outline='2px solid #2563eb';
+        target.style.outlineOffset='-2px';
+      }
 
       const startTotal=600+snapped;
       const endTotal=startTotal+drag.duration;
@@ -791,6 +803,7 @@ function renderTimelineView(){
       drag=null;
       el.classList.remove('dragging');
       el.releasePointerCapture?.(e.pointerId);
+      $('timelineTable').querySelectorAll('.timeline-track').forEach(t=>t.style.outline='');
 
       if(!d.moved){
         suppressClick=false;
@@ -810,12 +823,16 @@ function renderTimelineView(){
       const newStart=fmt(startTotal);
       const newEnd=fmt(endTotal);
 
-      if(newStart===timeText(schedule.start_time) && newEnd===timeText(schedule.end_time)){
+      const newMemberId=d.newMemberId || String(schedule.member_id);
+
+      if(newStart===timeText(schedule.start_time) &&
+         newEnd===timeText(schedule.end_time) &&
+         String(newMemberId)===String(schedule.member_id)){
         renderTimelineView();
         return;
       }
 
-      const p={...schedule,start_time:newStart,end_time:newEnd};
+      const p={...schedule,member_id:newMemberId,start_time:newStart,end_time:newEnd};
 
       const memberCheck=await hasMemberConflict(p,schedule.id);
       if(memberCheck?.error){
@@ -844,7 +861,7 @@ function renderTimelineView(){
       }
 
       const {error}=await sb.from('schedules')
-        .update({start_time:newStart,end_time:newEnd})
+        .update({member_id:newMemberId,start_time:newStart,end_time:newEnd})
         .eq('id',schedule.id);
 
       if(error){
@@ -861,6 +878,7 @@ function renderTimelineView(){
       if(!drag || e.pointerId!==drag.pointerId) return;
       drag=null;
       el.classList.remove('dragging');
+      $('timelineTable').querySelectorAll('.timeline-track').forEach(t=>t.style.outline='');
       renderTimelineView();
     });
 
