@@ -349,7 +349,9 @@ function renderCalendar(){
   const dayOffs={};
 
   monthSchedules.forEach(s=>{
-    counts[s.event_date]=(counts[s.event_date]||0)+1;
+    if(!isDayOffType(s.event_type_id)){
+      counts[s.event_date]=(counts[s.event_date]||0)+1;
+    }
 
     if(isDayOffType(s.event_type_id)){
       const member=findById(masters.members,s.member_id);
@@ -385,9 +387,9 @@ function renderCalendar(){
     const count=counts[iso]||0;
     const leaves=dayOffs[iso]||[];
     const leaveHtml=leaves.length
-      ? `<span class="dayoff-list">${leaves.slice(0,2).map(x=>
+      ? `<span class="dayoff-list">${leaves.map(x=>
           `<span class="dayoff-chip" style="border-left:3px solid ${esc(x.color)}">${esc(x.member)} ${esc(x.type)}</span>`
-        ).join('')}${leaves.length>2?`<span class="dayoff-chip">ほか${leaves.length-2}件</span>`:''}</span>`
+        ).join('')}</span>`
       : '';
 
     html+=`<button type="button" class="${classes.join(' ')}" data-date="${iso}">
@@ -420,7 +422,8 @@ function selectedSchedules(){
 function renderSelectedDay(){
   const schedules=selectedSchedules();
   $('dateTitle').textContent = selectedDate.replaceAll('-','/')+' の予定';
-  $('countAll').textContent=schedules.length;
+  const normalSchedules=schedules.filter(s=>!isDayOffType(s.event_type_id));
+  $('countAll').textContent=normalSchedules.length;
 
   let sales=0, loan=0;
   for(const s of schedules){
