@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: operations-plus-1 -->
+  <!-- version: store-suite-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -151,6 +151,19 @@
     .store-mode header h1{font-size:18px}
     .date-move{display:flex;gap:6px;margin-top:8px}
     .date-move button{flex:1;padding:8px;font-size:12px}
+    .selected-summary{grid-column:1/-1;background:#eff6ff;border-color:#bfdbfe}
+    .selected-summary b{font-size:17px}
+    .customer-ledger{max-height:60vh;overflow:auto}
+    .ledger-card{border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:8px}
+    .repeat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    @media print{
+      body{background:#fff}
+      header,.month-card,.stats,.search-box,.tabs,.fab,.timeline-mode,.timeline-drag-note,#timelineRefreshBtn{display:none!important}
+      #timelineView{display:block!important;border:0;box-shadow:none;padding:0}
+      .timeline-wrap{overflow:visible;border:0}
+      .timeline{min-width:1000px}
+      .wrap{max-width:none;padding:0}
+    }
 
     @media(max-width:560px){
       .wrap{padding:12px 10px 94px}
@@ -184,6 +197,7 @@
         <div id="userLabel" class="small"></div>
       </div>
       <div class="row">
+        <button id="customerLedgerBtn" class="settings-btn">顧客台帳</button>
         <button id="storeModeBtn" class="settings-btn">店頭モード</button>
         <button id="settingsBtn" class="settings-btn">設定</button>
         <button id="logoutBtn" class="ghost">ログアウト</button>
@@ -204,6 +218,7 @@
     </section>
 
     <section class="stats">
+      <div class="stat selected-summary"><span class="small">選択中の日付</span><b id="selectedDateSummary">-</b></div>
       <div class="stat"><span class="small">予定</span><b id="countAll">0</b></div>
       <div class="stat"><span class="small">試乗・商談</span><b id="countSales">0</b></div>
       <div class="stat"><span class="small">代車使用</span><b id="countLoaner">0</b></div>
@@ -254,6 +269,8 @@
       <div class="timeline-mode">
         <button id="timelinePeopleBtn" type="button" class="active">スタッフ</button>
         <button id="timelineLoanerBtn" type="button">代車</button>
+        <button id="timelineVehicleBtn" type="button">車両</button>
+        <button id="printDayBtn" type="button" class="ghost">印刷/PDF</button>
       </div>
       <div class="small" style="margin-bottom:4px">10:00〜18:00・30分刻み（横にスクロールできます）</div>
       <div class="timeline-drag-note">予定をドラッグして時間・担当を変更。右端をドラッグすると長さを変更できます。</div>
@@ -263,6 +280,15 @@
     <button id="addBtn" class="fab" aria-label="予定を追加">＋</button>
   </main>
 </div>
+
+<dialog id="customerLedgerDialog">
+  <div class="modal">
+    <h2>顧客台帳</h2>
+    <input id="ledgerSearch" placeholder="お客様名・電話番号で検索">
+    <div id="ledgerList" class="customer-ledger"></div>
+    <div class="actions"><button id="closeLedgerBtn" type="button" class="ghost">閉じる</button></div>
+  </div>
+</dialog>
 
 <dialog id="settingsDialog">
   <div class="modal">
@@ -326,7 +352,12 @@
     </div>
 
     <div id="availabilityInfo" class="availability"></div>
-    <div id="customerField" class="field"><label>お客様名</label><input id="customerName" type="text" placeholder="任意"></div>
+    <div id="customerField">
+      <div class="grid2">
+        <div class="field"><label>お客様名</label><input id="customerName" type="text" placeholder="任意"></div>
+        <div class="field"><label>電話番号</label><input id="customerPhone" type="tel" placeholder="任意"></div>
+      </div>
+    </div>
     <div id="customerHistory" class="history-box hidden"></div>
 
     <div id="vehicleLoanerFields" class="grid2">
@@ -335,6 +366,15 @@
     </div>
 
     <div class="field"><label>メモ</label><textarea id="memo" placeholder="任意"></textarea></div>
+    <div id="repeatFields" class="repeat-row">
+      <div class="field"><label>繰り返し</label><select id="repeatType">
+        <option value="none">なし</option><option value="weekly">毎週</option><option value="monthly">毎月</option>
+      </select></div>
+      <div class="field"><label>回数</label><select id="repeatCount">
+        <option value="2">2回</option><option value="3">3回</option><option value="4">4回</option>
+        <option value="6">6回</option><option value="12">12回</option>
+      </select></div>
+    </div>
     <div id="formStatus" class="status"></div>
 
     <div id="dateMoveBtns" class="date-move hidden">
@@ -363,7 +403,7 @@ let visibleMonth = new Date(selectedDate + 'T00:00:00');
 visibleMonth.setDate(1);
 
 const $ = id => document.getElementById(id);
-const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog'), settingsDialog=$('settingsDialog');
+const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog'), settingsDialog=$('settingsDialog'), customerLedgerDialog=$('customerLedgerDialog');
 
 function localDateISO(d=new Date()){
   const x=new Date(d.getTime()-d.getTimezoneOffset()*60000);
@@ -575,6 +615,7 @@ function selectedSchedules(){
 function renderSelectedDay(){
   const schedules=selectedSchedules();
   $('dateTitle').textContent = selectedDate.replaceAll('-','/')+' の予定';
+  $('selectedDateSummary').textContent=selectedDate.replaceAll('-','/');
   const normalSchedules=schedules.filter(isNormalSchedule);
   $('countAll').textContent=normalSchedules.length;
 
@@ -607,6 +648,7 @@ function renderSelectedDay(){
       labelOf(vehicle) ? '車種：'+labelOf(vehicle) : '',
       labelOf(loaner) ? '代車：'+labelOf(loaner) : '',
       s.customer_name ? 'お客様：'+s.customer_name : '',
+      s.customer_phone ? '電話：'+s.customer_phone : '',
       s.memo ? 'メモ：'+s.memo : ''
     ]).filter(Boolean).map(esc).join('<br>');
 
@@ -781,10 +823,11 @@ function renderTimelineView(){
   $('timelineDateTitle').textContent=selectedDate.replaceAll('-','/')+' 1日のスケジュール';
   $('timelinePeopleBtn').classList.toggle('active',timelineMode==='people');
   $('timelineLoanerBtn').classList.toggle('active',timelineMode==='loaner');
+  $('timelineVehicleBtn').classList.toggle('active',timelineMode==='vehicle');
 
-  const resources=timelineMode==='people' ? masters.members : masters.loaners;
+  const resources=timelineMode==='people' ? masters.members : timelineMode==='loaner' ? masters.loaners : masters.vehicles;
   if(!resources.length){
-    $('timelineTable').innerHTML=`<div class="empty">${timelineMode==='people'?'スタッフ':'代車'}が登録されていません</div>`;
+    $('timelineTable').innerHTML=`<div class="empty">${timelineMode==='people'?'スタッフ':timelineMode==='loaner'?'代車':'車両'}が登録されていません</div>`;
     return;
   }
 
@@ -796,13 +839,14 @@ function renderTimelineView(){
   }
 
   let html=`<div class="timeline"><div class="timeline-head">
-    <div class="timeline-staff-head">${timelineMode==='people'?'スタッフ':'代車'}</div>
+    <div class="timeline-staff-head">${timelineMode==='people'?'スタッフ':timelineMode==='loaner'?'代車':'車両'}</div>
     <div class="timeline-scale">${marks.join('')}</div></div>`;
 
   resources.forEach(resource=>{
     let items=schedules.filter(s=>timelineMode==='people'
       ? String(s.member_id)===String(resource.id)
-      : String(s.loaner_id)===String(resource.id))
+      : timelineMode==='loaner' ? String(s.loaner_id)===String(resource.id)
+      : String(s.vehicle_id)===String(resource.id))
       .sort((a,b)=>String(a.start_time||'00:00').localeCompare(String(b.start_time||'00:00')));
 
     const dayOffs=timelineMode==='people' ? items.filter(s=>isDayOffType(s.event_type_id)) : [];
@@ -833,7 +877,7 @@ function renderTimelineView(){
       }).join('');
     }
 
-    html+=`<div class="timeline-row"><div class="timeline-staff"><b>${esc(labelOf(resource,timelineMode==='people'?'スタッフ':'代車'))}</b><div class="small">${esc(status)}</div></div>
+    html+=`<div class="timeline-row"><div class="timeline-staff"><b>${esc(labelOf(resource,timelineMode==='people'?'スタッフ':timelineMode==='loaner'?'代車':'車両'))}</b><div class="small">${esc(status)}</div></div>
       <div class="timeline-track" data-resource-id="${esc(resource.id)}">${track}</div></div>`;
   });
   html+='</div>';
@@ -842,7 +886,7 @@ function renderTimelineView(){
   const conflictOnTarget=(schedule,targetId,newStart,newEnd)=>{
     return schedules.some(s=>{
       if(String(s.id)===String(schedule.id) || isDayOffType(s.event_type_id)) return false;
-      const same=timelineMode==='people' ? String(s.member_id)===String(targetId) : String(s.loaner_id)===String(targetId);
+      const same=timelineMode==='people' ? String(s.member_id)===String(targetId) : timelineMode==='loaner' ? String(s.loaner_id)===String(targetId) : String(s.vehicle_id)===String(targetId);
       if(!same) return false;
       return newStart < timeText(s.end_time||'23:59') && newEnd > timeText(s.start_time||'00:00');
     });
@@ -908,7 +952,8 @@ function renderTimelineView(){
       const newStart=fmt(d.newStart), newEnd=fmt(d.newStart+d.newDuration);
       const p={...schedule,start_time:newStart,end_time:newEnd};
       if(timelineMode==='people') p.member_id=d.newResourceId;
-      else p.loaner_id=d.newResourceId;
+      else if(timelineMode==='loaner') p.loaner_id=d.newResourceId;
+      else p.vehicle_id=d.newResourceId;
 
       const memberCheck=await hasMemberConflict(p,schedule.id);
       if(memberCheck?.error||memberCheck?.conflict){alert(memberCheck?.conflict?'その時間には担当者の別の予定があります。':'予定確認中にエラーが発生しました。');renderTimelineView();return}
@@ -917,7 +962,9 @@ function renderTimelineView(){
         if(loanerCheck?.error||loanerCheck?.conflict){alert(loanerCheck?.conflict?'その時間は選択中の代車が使用されています。':'代車確認中にエラーが発生しました。');renderTimelineView();return}
       }
       const update={start_time:newStart,end_time:newEnd};
-      if(timelineMode==='people')update.member_id=d.newResourceId; else update.loaner_id=d.newResourceId;
+      if(timelineMode==='people')update.member_id=d.newResourceId;
+      else if(timelineMode==='loaner')update.loaner_id=d.newResourceId;
+      else update.vehicle_id=d.newResourceId;
       const {error}=await sb.from('schedules').update(update).eq('id',schedule.id);
       if(error){alert('変更を保存できませんでした：'+error.message);renderTimelineView();return}
       await loadMonth();
@@ -935,7 +982,7 @@ function renderTimelineView(){
     const slot=Math.min(450,Math.floor(((x/rect.width)*480)/30)*30), total=600+slot;
     const start=`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
     if(timelineMode==='people') openNewAt(track.dataset.resourceId,start);
-    else {openNew();$('loanerId').value=track.dataset.resourceId;$('startTime').value=start;$('endTime').value=nextHalfHour(start)}
+    else {openNew(); if(timelineMode==='loaner')$('loanerId').value=track.dataset.resourceId;else $('vehicleId').value=track.dataset.resourceId;$('startTime').value=start;$('endTime').value=nextHalfHour(start)}
   }));
 }
 
@@ -1028,7 +1075,7 @@ function openNew(){
   $('scheduleId').value='';
   $('eventDate').value=selectedDate;
   $('startTime').value=''; $('endTime').value=''; $('memberId').value=''; $('eventTypeId').value='';
-  $('customerName').value=''; $('vehicleId').value=''; $('loanerId').value=''; $('memo').value='';
+  $('customerName').value=''; $('customerPhone').value=''; $('repeatType').value='none'; $('repeatCount').value='2'; $('repeatFields').classList.remove('hidden'); $('vehicleId').value=''; $('loanerId').value=''; $('memo').value='';
   $('deleteBtn').classList.add('hidden'); $('duplicateBtn').classList.add('hidden'); $('dateMoveBtns').classList.add('hidden'); $('formStatus').textContent=''; $('customerHistory').classList.add('hidden');
   updateDayOffFields();
   dialog.showModal();
@@ -1038,7 +1085,7 @@ function openEdit(id){
   $('dialogTitle').textContent='予定を編集'; $('scheduleId').value=s.id;
   $('eventDate').value=s.event_date||''; $('startTime').value=timeText(s.start_time); $('endTime').value=timeText(s.end_time);
   $('memberId').value=s.member_id??''; $('eventTypeId').value=s.event_type_id??'';
-  $('customerName').value=s.customer_name??''; $('vehicleId').value=s.vehicle_id??''; $('loanerId').value=s.loaner_id??''; $('memo').value=s.memo??'';
+  $('customerName').value=s.customer_name??''; $('customerPhone').value=s.customer_phone??''; $('repeatType').value='none'; $('repeatFields').classList.add('hidden'); $('vehicleId').value=s.vehicle_id??''; $('loanerId').value=s.loaner_id??''; $('memo').value=s.memo??'';
   $('deleteBtn').classList.remove('hidden'); $('duplicateBtn').classList.remove('hidden'); $('dateMoveBtns').classList.remove('hidden'); $('formStatus').textContent='';
   updateDayOffFields();
   dialog.showModal();
@@ -1086,6 +1133,29 @@ function updateAvailability(){
   }
   box.textContent=(member||loaner)?`空き30分枠：${free.join('、')||'なし'}`:'';
 }
+async function renderCustomerLedger(){
+  const q=$('ledgerSearch').value.trim().toLowerCase();
+  const {data,error}=await sb.from('schedules').select('*').not('customer_name','is',null).order('event_date',{ascending:false}).limit(1000);
+  if(error){$('ledgerList').innerHTML='<div class="error">読み込みエラー</div>';return}
+  const groups={};
+  (data||[]).forEach(s=>{
+    const key=(s.customer_name||'').trim()+'|'+(s.customer_phone||'');
+    if(!groups[key])groups[key]=[];
+    groups[key].push(s);
+  });
+  const cards=Object.values(groups).filter(items=>{
+    const s=items[0], hay=((s.customer_name||'')+' '+(s.customer_phone||'')).toLowerCase();
+    return !q||hay.includes(q);
+  }).map(items=>{
+    const s=items[0], latest=items[0], member=labelOf(findById(masters.members,latest.member_id));
+    const vehicle=labelOf(findById(masters.vehicles,latest.vehicle_id));
+    return `<div class="ledger-card"><b>${esc(s.customer_name||'名称なし')}</b>
+      <div class="small">${s.customer_phone?'TEL '+esc(s.customer_phone)+' / ':''}来店・予定 ${items.length}件</div>
+      <div class="small">最新：${esc(latest.event_date.replaceAll('-','/'))}${member?' / '+esc(member):''}${vehicle?' / '+esc(vehicle):''}</div></div>`;
+  });
+  $('ledgerList').innerHTML=cards.join('')||'<div class="empty">該当するお客様はいません</div>';
+}
+async function openCustomerLedger(){customerLedgerDialog.showModal();await renderCustomerLedger()}
 function toggleStoreMode(){
   document.body.classList.toggle('store-mode');
   if(document.body.classList.contains('store-mode'))switchView('timeline');
@@ -1102,6 +1172,7 @@ function payload(){
     member_id:nullable($('memberId').value),
     event_type_id:nullable($('eventTypeId').value),
     customer_name:dayOff ? null : nullable($('customerName').value.trim()),
+    customer_phone:dayOff ? null : nullable($('customerPhone').value.trim()),
     vehicle_id:dayOff ? null : nullable($('vehicleId').value),
     loaner_id:dayOff ? null : nullable($('loanerId').value),
     memo:nullable($('memo').value.trim())
@@ -1128,6 +1199,21 @@ async function hasLoanerConflict(p,id){
     return newStart < oldEnd && newEnd > oldStart;
   });
 
+  return {conflict};
+}
+
+async function hasVehicleConflict(p,id){
+  if(!p.vehicle_id || !p.event_date || !p.start_time) return null;
+  const {data,error}=await sb.from('schedules').select('id,start_time,end_time,vehicle_id,event_type_id')
+    .eq('event_date',p.event_date).eq('vehicle_id',p.vehicle_id);
+  if(error)return {error};
+  const et=labelOf(findById(masters.event_types,p.event_type_id));
+  if(!et.includes('試乗')) return {conflict:null};
+  const conflict=(data||[]).find(s=>{
+    if(id&&String(s.id)===String(id))return false;
+    const otherType=labelOf(findById(masters.event_types,s.event_type_id));
+    return otherType.includes('試乗') && p.start_time<(s.end_time||'23:59') && (p.end_time||'23:59')>(s.start_time||'00:00');
+  });
   return {conflict};
 }
 
@@ -1189,6 +1275,12 @@ async function saveSchedule(ev){
   $('saveBtn').disabled=true;
   $('formStatus').textContent='確認中…';
 
+  if(p.vehicle_id && !dayOff){
+    const check=await hasVehicleConflict(p,id);
+    if(check?.error){$('saveBtn').disabled=false;$('formStatus').className='status error';$('formStatus').textContent='車両確認エラー：'+check.error.message;return}
+    if(check?.conflict){$('saveBtn').disabled=false;$('formStatus').className='status error';$('formStatus').textContent='この時間は同じ車両に別の試乗予定があります。';return}
+  }
+
   if(p.loaner_id){
     const check=await hasLoanerConflict(p,id);
     if(check?.error){
@@ -1242,9 +1334,21 @@ async function saveSchedule(ev){
 
   $('formStatus').textContent='保存中…';
 
-  const res=id
-    ? await sb.from('schedules').update(p).eq('id',id)
-    : await sb.from('schedules').insert(p);
+  let res;
+  if(id){
+    res=await sb.from('schedules').update(p).eq('id',id);
+  }else if($('repeatType').value!=='none'){
+    const count=Number($('repeatCount').value||2), rows=[];
+    for(let i=0;i<count;i++){
+      const row={...p}, d=new Date(p.event_date+'T00:00:00');
+      if($('repeatType').value==='weekly') d.setDate(d.getDate()+i*7);
+      else d.setMonth(d.getMonth()+i);
+      row.event_date=localDateISO(d); rows.push(row);
+    }
+    res=await sb.from('schedules').insert(rows);
+  }else{
+    res=await sb.from('schedules').insert(p);
+  }
 
   $('saveBtn').disabled=false;
 
@@ -1272,6 +1376,9 @@ async function deleteSchedule(){
 
 $('loginBtn').addEventListener('click',login);
 $('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+$('customerLedgerBtn').addEventListener('click',openCustomerLedger);
+$('closeLedgerBtn').addEventListener('click',()=>customerLedgerDialog.close());
+$('ledgerSearch').addEventListener('input',renderCustomerLedger);
 $('storeModeBtn').addEventListener('click',toggleStoreMode);
 $('settingsBtn').addEventListener('click',openSettings);
 $('closeSettingsBtn').addEventListener('click',()=>settingsDialog.close());
@@ -1285,6 +1392,8 @@ $('nextMonthBtn').addEventListener('click',()=>changeMonth(1));
 $('todayBtn').addEventListener('click',goToday);
 $('timelinePeopleBtn').addEventListener('click',()=>{timelineMode='people';renderTimelineView()});
 $('timelineLoanerBtn').addEventListener('click',()=>{timelineMode='loaner';renderTimelineView()});
+$('timelineVehicleBtn').addEventListener('click',()=>{timelineMode='vehicle';renderTimelineView()});
+$('printDayBtn').addEventListener('click',()=>window.print());
 $('scheduleSearch').addEventListener('input',renderScheduleSearch);
 $('searchClearBtn').addEventListener('click',()=>{$('scheduleSearch').value='';renderScheduleSearch()});
 $('refreshBtn').addEventListener('click',async()=>{await loadMasters();await loadMonth()});
