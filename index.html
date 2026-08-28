@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: timeline-drag-time-member-1 -->
+  <!-- version: timeline-pro-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -113,6 +113,16 @@
     .timeline-drag-note{font-size:11px;color:#6b7280;margin:-2px 0 10px}
     .timeline-event b{display:block;font-size:12px;margin-bottom:2px}
     .timeline-event .event-customer{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .timeline-resize{position:absolute;right:0;top:0;width:16px;height:100%;cursor:ew-resize;touch-action:none}
+    .timeline-resize::after{content:"";position:absolute;right:4px;top:18%;bottom:18%;width:3px;border-radius:3px;background:currentColor;opacity:.35}
+    .timeline-mode{display:flex;gap:6px;margin:0 0 10px}
+    .timeline-mode button{padding:8px 13px;font-size:12px;background:#f3f4f6;color:#374151}
+    .timeline-mode button.active{background:#2563eb;color:#fff}
+    .timeline-track.conflict-target{outline:2px solid #dc2626!important;outline-offset:-2px;background-color:#fef2f2}
+    .search-box{margin-bottom:12px}
+    .search-results{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+    .search-item{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff}
+    .search-item b{display:block;margin-bottom:3px}
     .timeline-dayoff{position:absolute;left:1.2%;right:1.2%;top:14px;min-height:54px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;border:1px solid}
     .timeline-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:12px}
     .fab{position:fixed;right:18px;bottom:22px;width:58px;height:58px;border-radius:50%;font-size:30px;line-height:1;background:var(--accent);box-shadow:0 10px 24px rgba(37,99,235,.35)}
@@ -176,6 +186,14 @@
       <div class="stat"><span class="small">代車使用</span><b id="countLoaner">0</b></div>
     </section>
 
+    <section class="card search-box">
+      <div class="row">
+        <input id="scheduleSearch" class="grow" placeholder="予定検索（お客様名・車種・担当者）">
+        <button id="searchClearBtn" type="button" class="ghost">クリア</button>
+      </div>
+      <div id="searchResults" class="search-results hidden"></div>
+    </section>
+
     <section class="tabs">
       <button type="button" class="tab active" data-view="day">日別</button>
       <button type="button" class="tab" data-view="staff">スタッフ別</button>
@@ -210,8 +228,12 @@
         <strong class="grow" id="timelineDateTitle">1日のスケジュール</strong>
         <button id="timelineRefreshBtn" class="ghost">更新</button>
       </div>
+      <div class="timeline-mode">
+        <button id="timelinePeopleBtn" type="button" class="active">スタッフ</button>
+        <button id="timelineLoanerBtn" type="button">代車</button>
+      </div>
       <div class="small" style="margin-bottom:4px">10:00〜18:00・30分刻み（横にスクロールできます）</div>
-      <div class="timeline-drag-note">予定を左右にドラッグすると時間変更、上下にドラッグすると担当者変更ができます。</div>
+      <div class="timeline-drag-note">予定をドラッグして時間・担当を変更。右端をドラッグすると長さを変更できます。</div>
       <div id="timelineTable" class="timeline-wrap"></div>
     </section>
 
@@ -261,6 +283,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let masters = { members:[], event_types:[], vehicles:[], loaners:[] };
 let monthSchedules = [];
+let timelineMode = 'people';
 let selectedDate = localDateISO();
 let visibleMonth = new Date(selectedDate + 'T00:00:00');
 visibleMonth.setDate(1);
@@ -389,6 +412,7 @@ async function loadMonth(){
   renderStaffView();
   renderLoanerView();
   renderTimelineView();
+  if($('scheduleSearch')?.value) renderScheduleSearch();
 }
 
 function renderCalendar(){
@@ -629,6 +653,35 @@ function renderLoanerView(){
 }
 
 
+function renderScheduleSearch(){
+  const box=$('searchResults');
+  const q=$('scheduleSearch').value.trim().toLowerCase();
+  if(!q){ box.classList.add('hidden'); box.innerHTML=''; return; }
+
+  const results=monthSchedules.filter(s=>{
+    const member=labelOf(findById(masters.members,s.member_id));
+    const vehicle=labelOf(findById(masters.vehicles,s.vehicle_id));
+    const et=labelOf(findById(masters.event_types,s.event_type_id));
+    return [s.customer_name,member,vehicle,et,s.memo].filter(Boolean).join(' ').toLowerCase().includes(q);
+  }).sort((a,b)=>(a.event_date+a.start_time).localeCompare(b.event_date+b.start_time));
+
+  box.classList.remove('hidden');
+  box.innerHTML=results.length ? results.map(s=>{
+    const member=labelOf(findById(masters.members,s.member_id));
+    const vehicle=labelOf(findById(masters.vehicles,s.vehicle_id));
+    const et=labelOf(findById(masters.event_types,s.event_type_id),'予定');
+    return `<div class="search-item" data-search-id="${esc(s.id)}">
+      <b>${esc(s.event_date.replaceAll('-','/'))} ${isDayOffType(s.event_type_id)?'終日':esc(timeText(s.start_time))+' - '+esc(timeText(s.end_time))}</b>
+      <div>${esc(member)} / ${esc(et)}${vehicle?' / '+esc(vehicle):''}${s.customer_name?' / '+esc(s.customer_name):''}</div>
+    </div>`;
+  }).join('') : '<div class="small">該当する予定はありません</div>';
+
+  box.querySelectorAll('[data-search-id]').forEach(el=>el.addEventListener('click',()=>{
+    const s=monthSchedules.find(x=>String(x.id)===String(el.dataset.searchId));
+    if(s) openEdit(s.id);
+  }));
+}
+
 function minutesFromOpen(v){
   if(!v) return 0;
   const [h,m]=timeText(v).split(':').map(Number);
@@ -652,264 +705,164 @@ function openNewAt(memberId,start){
 function renderTimelineView(){
   const schedules=selectedSchedules();
   $('timelineDateTitle').textContent=selectedDate.replaceAll('-','/')+' 1日のスケジュール';
+  $('timelinePeopleBtn').classList.toggle('active',timelineMode==='people');
+  $('timelineLoanerBtn').classList.toggle('active',timelineMode==='loaner');
 
-  if(!masters.members.length){
-    $('timelineTable').innerHTML='<div class="empty">スタッフが登録されていません</div>';
+  const resources=timelineMode==='people' ? masters.members : masters.loaners;
+  if(!resources.length){
+    $('timelineTable').innerHTML=`<div class="empty">${timelineMode==='people'?'スタッフ':'代車'}が登録されていません</div>`;
     return;
   }
 
   const marks=[];
   for(let i=0;i<=16;i++){
-    const total=600+i*30;
-    const h=Math.floor(total/60);
-    const m=total%60;
+    const total=600+i*30, h=Math.floor(total/60), m=total%60;
     const label=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
-    const left=(i/16)*100;
-    marks.push(`<span class="timeline-mark" style="left:${left}%">${label}</span>`);
+    marks.push(`<span class="timeline-mark" style="left:${(i/16)*100}%">${label}</span>`);
   }
 
-  let html=`<div class="timeline">
-    <div class="timeline-head">
-      <div class="timeline-staff-head">スタッフ</div>
-      <div class="timeline-scale">${marks.join('')}</div>
-    </div>`;
+  let html=`<div class="timeline"><div class="timeline-head">
+    <div class="timeline-staff-head">${timelineMode==='people'?'スタッフ':'代車'}</div>
+    <div class="timeline-scale">${marks.join('')}</div></div>`;
 
-  masters.members.forEach(member=>{
-    const items=schedules
-      .filter(s=>String(s.member_id)===String(member.id))
+  resources.forEach(resource=>{
+    let items=schedules.filter(s=>timelineMode==='people'
+      ? String(s.member_id)===String(resource.id)
+      : String(s.loaner_id)===String(resource.id))
       .sort((a,b)=>String(a.start_time||'00:00').localeCompare(String(b.start_time||'00:00')));
 
+    const dayOffs=timelineMode==='people' ? items.filter(s=>isDayOffType(s.event_type_id)) : [];
     const normalItems=items.filter(isNormalSchedule);
-    const dayOffs=items.filter(s=>isDayOffType(s.event_type_id));
-
-    const status=dayOffs.length
-      ? dayOffs.map(s=>labelOf(findById(masters.event_types,s.event_type_id),'休み')).join('・')
-      : `${normalItems.length}件`;
+    const status=dayOffs.length ? dayOffs.map(s=>labelOf(findById(masters.event_types,s.event_type_id),'休み')).join('・') : `${normalItems.length}件`;
 
     let track='';
-
     if(dayOffs.length){
-      const s=dayOffs[0];
-      const et=findById(masters.event_types,s.event_type_id);
-      const c=colorOf(et);
-      track=`<div class="timeline-dayoff" data-id="${esc(s.id)}"
-        style="border-color:${esc(c)};background:${esc(c)}18;color:${esc(c)}">
-        ${esc(labelOf(et,'休み'))}（終日）
-      </div>`;
+      const s=dayOffs[0], et=findById(masters.event_types,s.event_type_id), c=colorOf(et);
+      track=`<div class="timeline-dayoff" data-id="${esc(s.id)}" style="border-color:${esc(c)};background:${esc(c)}18;color:${esc(c)}">${esc(labelOf(et,'休み'))}（終日）</div>`;
     }else if(!normalItems.length){
       track='<div class="timeline-empty">予定なし</div>';
     }else{
       track=normalItems.map(s=>{
         const et=findById(masters.event_types,s.event_type_id);
         const vehicle=findById(masters.vehicles,s.vehicle_id);
+        const member=findById(masters.members,s.member_id);
         const start=Math.max(0,Math.min(480,minutesFromOpen(s.start_time)));
-        const endRaw=s.end_time ? minutesFromOpen(s.end_time) : start+30;
+        const endRaw=s.end_time?minutesFromOpen(s.end_time):start+30;
         const end=Math.max(start+30,Math.min(480,endRaw));
-        const left=(start/480)*100;
-        const width=Math.max(6.25,((end-start)/480)*100);
-        const c=colorOf(et);
-        return `<div class="timeline-event" data-id="${esc(s.id)}"
-          data-start="${esc(timeText(s.start_time))}" data-end="${esc(timeText(s.end_time||''))}"
-          style="left:${left}%;width:${width}%;border-color:${esc(c)};background:${esc(c)}18;color:#111827">
-          <b>${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</b>
-          <div>${esc(labelOf(et,'予定'))}${vehicle?' / '+esc(labelOf(vehicle)):''}</div>
+        const left=(start/480)*100, width=Math.max(6.25,((end-start)/480)*100), c=colorOf(et);
+        return `<div class="timeline-event" data-id="${esc(s.id)}" style="left:${left}%;width:${width}%;border-color:${esc(c)};background:${esc(c)}18;color:#111827">
+          <b>${esc(timeText(s.start_time))} - ${esc(timeText(s.end_time))}</b>
+          <div>${esc(labelOf(et,'予定'))}${timelineMode==='loaner'&&member?' / '+esc(labelOf(member)):vehicle?' / '+esc(labelOf(vehicle)):''}</div>
           ${s.customer_name?`<div class="event-customer">${esc(s.customer_name)}</div>`:''}
+          <span class="timeline-resize" title="時間の長さを変更"></span>
         </div>`;
       }).join('');
     }
 
-    html+=`<div class="timeline-row">
-      <div class="timeline-staff">
-        <b>${esc(labelOf(member,'スタッフ'))}</b>
-        <div class="small">${esc(status)}</div>
-      </div>
-      <div class="timeline-track" data-member-id="${esc(member.id)}">${track}</div>
-    </div>`;
+    html+=`<div class="timeline-row"><div class="timeline-staff"><b>${esc(labelOf(resource,timelineMode==='people'?'スタッフ':'代車'))}</b><div class="small">${esc(status)}</div></div>
+      <div class="timeline-track" data-resource-id="${esc(resource.id)}">${track}</div></div>`;
   });
-
   html+='</div>';
   $('timelineTable').innerHTML=html;
 
+  const conflictOnTarget=(schedule,targetId,newStart,newEnd)=>{
+    return schedules.some(s=>{
+      if(String(s.id)===String(schedule.id) || isDayOffType(s.event_type_id)) return false;
+      const same=timelineMode==='people' ? String(s.member_id)===String(targetId) : String(s.loaner_id)===String(targetId);
+      if(!same) return false;
+      return newStart < timeText(s.end_time||'23:59') && newEnd > timeText(s.start_time||'00:00');
+    });
+  };
+
   $('timelineTable').querySelectorAll('.timeline-event').forEach(el=>{
-    let drag=null;
-    let suppressClick=false;
-
+    let drag=null, suppressClick=false;
     el.addEventListener('pointerdown',e=>{
-      if(e.button!==undefined && e.button!==0) return;
-      const track=el.closest('.timeline-track');
-      if(!track) return;
-
+      if(e.button!==undefined&&e.button!==0) return;
       const schedule=monthSchedules.find(s=>String(s.id)===String(el.dataset.id));
-      if(!schedule || isDayOffType(schedule.event_type_id)) return;
-
+      const track=el.closest('.timeline-track');
+      if(!schedule||!track) return;
       const start=minutesFromOpen(schedule.start_time);
-      const endRaw=schedule.end_time ? minutesFromOpen(schedule.end_time) : start+30;
-      const duration=Math.max(30,endRaw-start);
-
-      drag={
-        pointerId:e.pointerId,
-        startX:e.clientX,
-        startY:e.clientY,
-        startMinutes:start,
-        newMemberId:String(schedule.member_id),
-        duration,
-        trackWidth:track.getBoundingClientRect().width,
-        moved:false,
-        newStart:start
-      };
-
-      el.setPointerCapture?.(e.pointerId);
-      el.classList.add('dragging');
-      e.stopPropagation();
+      const end=Math.max(start+30,minutesFromOpen(schedule.end_time));
+      drag={pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,startMinutes:start,duration:end-start,
+        newStart:start,newDuration:end-start,newResourceId:String(track.dataset.resourceId),
+        trackWidth:track.getBoundingClientRect().width,moved:false,resizing:!!e.target.closest('.timeline-resize')};
+      el.setPointerCapture?.(e.pointerId); el.classList.add('dragging'); e.stopPropagation();
     });
 
     el.addEventListener('pointermove',e=>{
-      if(!drag || e.pointerId!==drag.pointerId) return;
-
-      const dx=e.clientX-drag.startX;
-      const dy=e.clientY-drag.startY;
-      if(Math.abs(dx)>5 || Math.abs(dy)>5) drag.moved=true;
+      if(!drag||e.pointerId!==drag.pointerId) return;
+      const dx=e.clientX-drag.startX, dy=e.clientY-drag.startY;
+      if(Math.abs(dx)>5||Math.abs(dy)>5) drag.moved=true;
       if(!drag.moved) return;
-
       e.preventDefault();
 
-      const deltaMinutes=(dx/drag.trackWidth)*480;
-      let snapped=Math.round((drag.startMinutes+deltaMinutes)/30)*30;
-      snapped=Math.max(0,Math.min(480-drag.duration,snapped));
-
-      drag.newStart=snapped;
-      el.style.left=`${(snapped/480)*100}%`;
-
-      const hit=document.elementFromPoint(e.clientX,e.clientY);
-      const target=hit ? hit.closest('.timeline-track') : null;
-      if(target && target.dataset.memberId){
-        drag.newMemberId=String(target.dataset.memberId);
-        $('timelineTable').querySelectorAll('.timeline-track').forEach(t=>t.style.outline='');
-        target.style.outline='2px solid #2563eb';
-        target.style.outlineOffset='-2px';
+      if(drag.resizing){
+        let duration=Math.round((drag.duration+(dx/drag.trackWidth)*480)/30)*30;
+        duration=Math.max(30,Math.min(480-drag.startMinutes,duration));
+        drag.newDuration=duration;
+        el.style.width=`${(duration/480)*100}%`;
+      }else{
+        let snapped=Math.round((drag.startMinutes+(dx/drag.trackWidth)*480)/30)*30;
+        snapped=Math.max(0,Math.min(480-drag.duration,snapped));
+        drag.newStart=snapped; el.style.left=`${(snapped/480)*100}%`;
+        const hit=document.elementFromPoint(e.clientX,e.clientY), target=hit?hit.closest('.timeline-track'):null;
+        if(target&&target.dataset.resourceId) drag.newResourceId=String(target.dataset.resourceId);
       }
 
-      const startTotal=600+snapped;
-      const endTotal=startTotal+drag.duration;
-      const fmt=total=>`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
-      const b=el.querySelector('b');
-      if(b) b.textContent=`${fmt(startTotal)} - ${fmt(endTotal)}`;
+      const fmt=t=>`${String(Math.floor((600+t)/60)).padStart(2,'0')}:${String((600+t)%60).padStart(2,'0')}`;
+      const newEnd=drag.newStart+drag.newDuration;
+      const b=el.querySelector('b'); if(b)b.textContent=`${fmt(drag.newStart)} - ${fmt(newEnd)}`;
+
+      $('timelineTable').querySelectorAll('.timeline-track').forEach(t=>{t.style.outline='';t.classList.remove('conflict-target')});
+      const target=[...$('timelineTable').querySelectorAll('.timeline-track')].find(t=>String(t.dataset.resourceId)===String(drag.newResourceId));
+      if(target){
+        const ns=fmt(drag.newStart), ne=fmt(newEnd);
+        if(conflictOnTarget(monthSchedules.find(s=>String(s.id)===String(el.dataset.id)),drag.newResourceId,ns,ne)) target.classList.add('conflict-target');
+        else {target.style.outline='2px solid #2563eb';target.style.outlineOffset='-2px'}
+      }
     });
 
-    const finishDrag=async e=>{
-      if(!drag || e.pointerId!==drag.pointerId) return;
+    const finish=async e=>{
+      if(!drag||e.pointerId!==drag.pointerId)return;
+      const d=drag; drag=null; el.classList.remove('dragging'); el.releasePointerCapture?.(e.pointerId);
+      $('timelineTable').querySelectorAll('.timeline-track').forEach(t=>{t.style.outline='';t.classList.remove('conflict-target')});
+      if(!d.moved)return;
+      suppressClick=true;setTimeout(()=>suppressClick=false,350);
 
-      const d=drag;
-      drag=null;
-      el.classList.remove('dragging');
-      el.releasePointerCapture?.(e.pointerId);
-      $('timelineTable').querySelectorAll('.timeline-track').forEach(t=>t.style.outline='');
-
-      if(!d.moved){
-        suppressClick=false;
-        return;
-      }
-
-      suppressClick=true;
-      setTimeout(()=>{suppressClick=false},350);
-
-      const schedule=monthSchedules.find(s=>String(s.id)===String(el.dataset.id));
-      if(!schedule) return;
-
-      const startTotal=600+d.newStart;
-      const endTotal=startTotal+d.duration;
-      const fmt=total=>`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
-
-      const newStart=fmt(startTotal);
-      const newEnd=fmt(endTotal);
-
-      const newMemberId=d.newMemberId || String(schedule.member_id);
-
-      if(newStart===timeText(schedule.start_time) &&
-         newEnd===timeText(schedule.end_time) &&
-         String(newMemberId)===String(schedule.member_id)){
-        renderTimelineView();
-        return;
-      }
-
-      const p={...schedule,member_id:newMemberId,start_time:newStart,end_time:newEnd};
+      const schedule=monthSchedules.find(s=>String(s.id)===String(el.dataset.id)); if(!schedule)return;
+      const fmt=t=>`${String(Math.floor((600+t)/60)).padStart(2,'0')}:${String((600+t)%60).padStart(2,'0')}`;
+      const newStart=fmt(d.newStart), newEnd=fmt(d.newStart+d.newDuration);
+      const p={...schedule,start_time:newStart,end_time:newEnd};
+      if(timelineMode==='people') p.member_id=d.newResourceId;
+      else p.loaner_id=d.newResourceId;
 
       const memberCheck=await hasMemberConflict(p,schedule.id);
-      if(memberCheck?.error){
-        alert('時間変更の確認中にエラーが発生しました。');
-        renderTimelineView();
-        return;
-      }
-      if(memberCheck?.conflict){
-        alert('その時間には担当者の別の予定があります。');
-        renderTimelineView();
-        return;
-      }
-
+      if(memberCheck?.error||memberCheck?.conflict){alert(memberCheck?.conflict?'その時間には担当者の別の予定があります。':'予定確認中にエラーが発生しました。');renderTimelineView();return}
       if(p.loaner_id){
         const loanerCheck=await hasLoanerConflict(p,schedule.id);
-        if(loanerCheck?.error){
-          alert('代車の確認中にエラーが発生しました。');
-          renderTimelineView();
-          return;
-        }
-        if(loanerCheck?.conflict){
-          alert('その時間は選択中の代車が使用されています。');
-          renderTimelineView();
-          return;
-        }
+        if(loanerCheck?.error||loanerCheck?.conflict){alert(loanerCheck?.conflict?'その時間は選択中の代車が使用されています。':'代車確認中にエラーが発生しました。');renderTimelineView();return}
       }
-
-      const {error}=await sb.from('schedules')
-        .update({member_id:newMemberId,start_time:newStart,end_time:newEnd})
-        .eq('id',schedule.id);
-
-      if(error){
-        alert('時間変更を保存できませんでした：'+error.message);
-        renderTimelineView();
-        return;
-      }
-
+      const update={start_time:newStart,end_time:newEnd};
+      if(timelineMode==='people')update.member_id=d.newResourceId; else update.loaner_id=d.newResourceId;
+      const {error}=await sb.from('schedules').update(update).eq('id',schedule.id);
+      if(error){alert('変更を保存できませんでした：'+error.message);renderTimelineView();return}
       await loadMonth();
     };
-
-    el.addEventListener('pointerup',finishDrag);
-    el.addEventListener('pointercancel',e=>{
-      if(!drag || e.pointerId!==drag.pointerId) return;
-      drag=null;
-      el.classList.remove('dragging');
-      $('timelineTable').querySelectorAll('.timeline-track').forEach(t=>t.style.outline='');
-      renderTimelineView();
-    });
-
-    el.addEventListener('click',e=>{
-      e.stopPropagation();
-      if(suppressClick) return;
-      openEdit(el.dataset.id);
-    });
+    el.addEventListener('pointerup',finish);
+    el.addEventListener('pointercancel',()=>renderTimelineView());
+    el.addEventListener('click',e=>{e.stopPropagation();if(!suppressClick)openEdit(el.dataset.id)});
   });
 
-  $('timelineTable').querySelectorAll('.timeline-dayoff').forEach(el=>{
-    el.addEventListener('click',e=>{
-      e.stopPropagation();
-      openEdit(el.dataset.id);
-    });
-  });
+  $('timelineTable').querySelectorAll('.timeline-dayoff').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();openEdit(el.dataset.id)}));
 
-  $('timelineTable').querySelectorAll('.timeline-track').forEach(track=>{
-    track.addEventListener('click',e=>{
-      if(e.target.closest('[data-id]')) return;
-
-      const rect=track.getBoundingClientRect();
-      const x=Math.max(0,Math.min(rect.width,e.clientX-rect.left));
-      const rawMinutes=(x/rect.width)*480;
-      const slot=Math.min(450,Math.floor(rawMinutes/30)*30);
-      const total=600+slot;
-      const start=`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
-
-      openNewAt(track.dataset.memberId,start);
-    });
-  });
+  $('timelineTable').querySelectorAll('.timeline-track').forEach(track=>track.addEventListener('click',e=>{
+    if(e.target.closest('[data-id]'))return;
+    const rect=track.getBoundingClientRect(), x=Math.max(0,Math.min(rect.width,e.clientX-rect.left));
+    const slot=Math.min(450,Math.floor(((x/rect.width)*480)/30)*30), total=600+slot;
+    const start=`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+    if(timelineMode==='people') openNewAt(track.dataset.resourceId,start);
+    else {openNew();$('loanerId').value=track.dataset.resourceId;$('startTime').value=start;$('endTime').value=nextHalfHour(start)}
+  }));
 }
 
 function switchView(view){
@@ -1135,6 +1088,10 @@ $('logoutBtn').addEventListener('click',logout);
 $('prevMonthBtn').addEventListener('click',()=>changeMonth(-1));
 $('nextMonthBtn').addEventListener('click',()=>changeMonth(1));
 $('todayBtn').addEventListener('click',goToday);
+$('timelinePeopleBtn').addEventListener('click',()=>{timelineMode='people';renderTimelineView()});
+$('timelineLoanerBtn').addEventListener('click',()=>{timelineMode='loaner';renderTimelineView()});
+$('scheduleSearch').addEventListener('input',renderScheduleSearch);
+$('searchClearBtn').addEventListener('click',()=>{$('scheduleSearch').value='';renderScheduleSearch()});
 $('refreshBtn').addEventListener('click',async()=>{await loadMasters();await loadMonth()});
 $('timelineRefreshBtn').addEventListener('click',async()=>{await loadMasters();await loadMonth()});
 $('addBtn').addEventListener('click',openNew);
