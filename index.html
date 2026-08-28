@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: customer-master-1 -->
+  <!-- version: customer-service-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -162,6 +162,12 @@
     .customer-add-box h3{margin:0 0 10px;font-size:15px}
     .inspection-soon{color:#b45309;font-weight:800}
     .inspection-overdue{color:#b91c1c;font-weight:800}
+    .inspection-tabs{display:flex;gap:6px;overflow-x:auto;margin:10px 0}
+    .inspection-tabs button{white-space:nowrap;padding:8px 10px;font-size:12px;background:#f3f4f6;color:#374151}
+    .inspection-tabs button.active{background:#2563eb;color:#fff}
+    .inspection-list{max-height:60vh;overflow:auto}
+    .inspection-card{border:1px solid var(--line);border-radius:12px;padding:10px;margin-top:8px}
+    .customer-plan-btn{margin-top:7px;padding:7px 10px;font-size:11px}
     .repeat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     @media print{
       body{background:#fff}
@@ -204,6 +210,7 @@
         <div id="userLabel" class="small"></div>
       </div>
       <div class="row">
+        <button id="inspectionListBtn" class="settings-btn">点検リスト</button>
         <button id="customerLedgerBtn" class="settings-btn">顧客台帳</button>
         <button id="storeModeBtn" class="settings-btn">店頭モード</button>
         <button id="settingsBtn" class="settings-btn">設定</button>
@@ -288,6 +295,20 @@
   </main>
 </div>
 
+<dialog id="inspectionDialog">
+  <div class="modal">
+    <h2>点検リスト</h2>
+    <div class="inspection-tabs">
+      <button type="button" class="inspection-tab active" data-range="this">今月</button>
+      <button type="button" class="inspection-tab" data-range="next">来月</button>
+      <button type="button" class="inspection-tab" data-range="overdue">期限超過</button>
+      <button type="button" class="inspection-tab" data-range="all">すべて</button>
+    </div>
+    <div id="inspectionList" class="inspection-list"></div>
+    <div class="actions"><button id="closeInspectionBtn" type="button" class="ghost">閉じる</button></div>
+  </div>
+</dialog>
+
 <dialog id="customerLedgerDialog">
   <div class="modal">
     <h2>顧客台帳</h2>
@@ -298,6 +319,8 @@
       <div class="field"><label>名前</label><input id="ledgerCustomerName" placeholder="必須"></div>
       <div class="field"><label>電話番号</label><input id="ledgerCustomerPhone" type="tel" placeholder="任意"></div>
       <div class="field"><label>次回点検時期</label><input id="ledgerNextInspection" type="date"></div>
+      <div class="field"><label>担当スタッフ</label><select id="ledgerMemberId"><option value="">未設定</option></select></div>
+      <div class="field"><label>車種</label><select id="ledgerVehicleId"><option value="">未設定</option></select></div>
       <div class="row">
         <button id="saveCustomerBtn" type="button">顧客を追加</button>
         <button id="cancelCustomerEditBtn" type="button" class="ghost hidden">編集をやめる</button>
@@ -429,7 +452,7 @@ let visibleMonth = new Date(selectedDate + 'T00:00:00');
 visibleMonth.setDate(1);
 
 const $ = id => document.getElementById(id);
-const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog'), settingsDialog=$('settingsDialog'), customerLedgerDialog=$('customerLedgerDialog');
+const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog'), settingsDialog=$('settingsDialog'), customerLedgerDialog=$('customerLedgerDialog'), inspectionDialog=$('inspectionDialog');
 
 function localDateISO(d=new Date()){
   const x=new Date(d.getTime()-d.getTimezoneOffset()*60000);
@@ -522,6 +545,8 @@ async function loadMasters(){
     customerSel.innerHTML='<option value="">顧客を選択しない</option>'+
       masters.customers.map(c=>`<option value="${esc(c.id)}">${esc(labelOf(c))}${c.phone?' / '+esc(c.phone):''}</option>`).join('');
   }
+  if($('ledgerMemberId')) $('ledgerMemberId').innerHTML='<option value="">未設定</option>'+masters.members.map(x=>`<option value="${esc(x.id)}">${esc(labelOf(x))}</option>`).join('');
+  if($('ledgerVehicleId')) $('ledgerVehicleId').innerHTML='<option value="">未設定</option>'+masters.vehicles.map(x=>`<option value="${esc(x.id)}">${esc(labelOf(x))}</option>`).join('');
   fillTimeSelects();
 }
 function fillSelect(id,arr,placeholder){
@@ -1143,6 +1168,8 @@ function updateSelectedCustomerInfo(){
   if(!c){$('selectedCustomerInfo').textContent='';return}
   $('customerName').value=c.name||'';
   $('customerPhone').value=c.phone||'';
+  if(c.member_id) $('memberId').value=c.member_id;
+  if(c.vehicle_id) $('vehicleId').value=c.vehicle_id;
   $('selectedCustomerInfo').textContent=c.next_inspection_date
     ? `次回点検時期：${String(c.next_inspection_date).replaceAll('-','/')}`
     : '次回点検時期：未登録';
@@ -1152,6 +1179,8 @@ function resetCustomerForm(){
   $('ledgerCustomerName').value='';
   $('ledgerCustomerPhone').value='';
   $('ledgerNextInspection').value='';
+  $('ledgerMemberId').value='';
+  $('ledgerVehicleId').value='';
   $('customerFormTitle').textContent='顧客を追加';
   $('saveCustomerBtn').textContent='顧客を追加';
   $('cancelCustomerEditBtn').classList.add('hidden');
@@ -1162,13 +1191,15 @@ async function saveCustomer(){
   const name=$('ledgerCustomerName').value.trim();
   const phone=$('ledgerCustomerPhone').value.trim()||null;
   const next_inspection_date=$('ledgerNextInspection').value||null;
+  const member_id=$('ledgerMemberId').value||null;
+  const vehicle_id=$('ledgerVehicleId').value||null;
   if(!name){$('customerFormStatus').className='status error';$('customerFormStatus').textContent='名前を入力してください。';return}
 
   $('saveCustomerBtn').disabled=true;
   $('customerFormStatus').className='status';
   $('customerFormStatus').textContent=id?'更新中…':'追加中…';
 
-  const payload={name,phone,next_inspection_date};
+  const payload={name,phone,next_inspection_date,member_id,vehicle_id};
   const res=id
     ? await sb.from('customers').update(payload).eq('id',id)
     : await sb.from('customers').insert(payload);
@@ -1189,6 +1220,8 @@ function editCustomer(id){
   $('ledgerCustomerName').value=c.name||'';
   $('ledgerCustomerPhone').value=c.phone||'';
   $('ledgerNextInspection').value=c.next_inspection_date||'';
+  $('ledgerMemberId').value=c.member_id||'';
+  $('ledgerVehicleId').value=c.vehicle_id||'';
   $('customerFormTitle').textContent='顧客を編集';
   $('saveCustomerBtn').textContent='変更を保存';
   $('cancelCustomerEditBtn').classList.remove('hidden');
@@ -1262,12 +1295,16 @@ async function renderCustomerLedger(){
         if(diff<=30) cls='inspection-soon';
       }
     }
+    const member=labelOf(findById(masters.members,c.member_id));
+    const vehicle=labelOf(findById(masters.vehicles,c.vehicle_id));
     return `<div class="ledger-card">
       <div class="ledger-head">
         <div>
           <b>${esc(c.name||'名称なし')}</b>
           <div class="small">${c.phone?'TEL '+esc(c.phone):'電話番号なし'} / 予定 ${count}件</div>
+          <div class="small">${member?'担当：'+esc(member):'担当：未設定'}${vehicle?' / 車種：'+esc(vehicle):''}</div>
           <div class="${cls||'small'}">${esc(inspection)}</div>
+          <button type="button" class="customer-plan-btn ledger-plan" data-id="${esc(c.id)}">この顧客の予定を追加</button>
         </div>
         <div class="ledger-actions">
           <button type="button" class="secondary ledger-edit" data-id="${esc(c.id)}">編集</button>
@@ -1279,7 +1316,50 @@ async function renderCustomerLedger(){
 
   $('ledgerList').querySelectorAll('.ledger-edit').forEach(b=>b.onclick=()=>editCustomer(b.dataset.id));
   $('ledgerList').querySelectorAll('.ledger-delete').forEach(b=>b.onclick=()=>deleteCustomer(b.dataset.id));
+  $('ledgerList').querySelectorAll('.ledger-plan').forEach(b=>b.onclick=()=>openScheduleForCustomer(b.dataset.id));
 }
+function openScheduleForCustomer(id){
+  const c=findById(masters.customers,id); if(!c)return;
+  customerLedgerDialog.close();
+  if(inspectionDialog.open) inspectionDialog.close();
+  openNew();
+  $('customerId').value=c.id;
+  updateSelectedCustomerInfo();
+  showCustomerHistory();
+}
+
+let inspectionRange='this';
+function monthKey(dateStr){return String(dateStr||'').slice(0,7)}
+function renderInspectionList(){
+  const now=new Date(), today=localDateISO();
+  const thisKey=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const n=new Date(now.getFullYear(),now.getMonth()+1,1);
+  const nextKey=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}`;
+  let rows=masters.customers.filter(c=>c.next_inspection_date);
+  if(inspectionRange==='this') rows=rows.filter(c=>monthKey(c.next_inspection_date)===thisKey);
+  if(inspectionRange==='next') rows=rows.filter(c=>monthKey(c.next_inspection_date)===nextKey);
+  if(inspectionRange==='overdue') rows=rows.filter(c=>c.next_inspection_date<today);
+  rows.sort((a,b)=>String(a.next_inspection_date).localeCompare(String(b.next_inspection_date)));
+
+  $('inspectionList').innerHTML=rows.map(c=>{
+    const member=labelOf(findById(masters.members,c.member_id));
+    const vehicle=labelOf(findById(masters.vehicles,c.vehicle_id));
+    const overdue=c.next_inspection_date<today;
+    return `<div class="inspection-card">
+      <b>${esc(c.name)}</b>
+      <div class="${overdue?'inspection-overdue':'small'}">点検：${esc(String(c.next_inspection_date).replaceAll('-','/'))}</div>
+      <div class="small">${c.phone?'TEL '+esc(c.phone):'電話番号なし'}${member?' / '+esc(member):''}${vehicle?' / '+esc(vehicle):''}</div>
+      <button type="button" class="customer-plan-btn inspection-plan" data-id="${esc(c.id)}">予定を追加</button>
+    </div>`;
+  }).join('')||'<div class="empty">対象のお客様はいません</div>';
+  $('inspectionList').querySelectorAll('.inspection-plan').forEach(b=>b.onclick=()=>openScheduleForCustomer(b.dataset.id));
+}
+function openInspectionList(){
+  inspectionRange='this';
+  document.querySelectorAll('.inspection-tab').forEach(b=>b.classList.toggle('active',b.dataset.range==='this'));
+  renderInspectionList();inspectionDialog.showModal();
+}
+
 async function openCustomerLedger(){resetCustomerForm();customerLedgerDialog.showModal();await renderCustomerLedger()}
 function toggleStoreMode(){
   document.body.classList.toggle('store-mode');
@@ -1506,6 +1586,13 @@ async function deleteSchedule(){
 
 $('loginBtn').addEventListener('click',login);
 $('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+$('inspectionListBtn').addEventListener('click',openInspectionList);
+$('closeInspectionBtn').addEventListener('click',()=>inspectionDialog.close());
+document.querySelectorAll('.inspection-tab').forEach(b=>b.addEventListener('click',()=>{
+  inspectionRange=b.dataset.range;
+  document.querySelectorAll('.inspection-tab').forEach(x=>x.classList.toggle('active',x===b));
+  renderInspectionList();
+}));
 $('customerLedgerBtn').addEventListener('click',openCustomerLedger);
 $('closeLedgerBtn').addEventListener('click',()=>customerLedgerDialog.close());
 $('ledgerSearch').addEventListener('input',renderCustomerLedger);
