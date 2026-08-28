@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: timeline-day-view-1 -->
+  <!-- version: timeline-tap-create-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -632,6 +632,20 @@ function minutesFromOpen(v){
   return (h*60+m) - 600;
 }
 
+function nextHalfHour(time){
+  const [h,m]=time.split(':').map(Number);
+  let total=h*60+m+30;
+  if(total>1080) total=1080;
+  return `${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+}
+
+function openNewAt(memberId,start){
+  openNew();
+  $('memberId').value=memberId;
+  $('startTime').value=start;
+  $('endTime').value=nextHalfHour(start);
+}
+
 function renderTimelineView(){
   const schedules=selectedSchedules();
   $('timelineDateTitle').textContent=selectedDate.replaceAll('-','/')+' 1日のスケジュール';
@@ -705,7 +719,7 @@ function renderTimelineView(){
         <b>${esc(labelOf(member,'スタッフ'))}</b>
         <div class="small">${esc(status)}</div>
       </div>
-      <div class="timeline-track">${track}</div>
+      <div class="timeline-track" data-member-id="${esc(member.id)}">${track}</div>
     </div>`;
   });
 
@@ -713,7 +727,25 @@ function renderTimelineView(){
   $('timelineTable').innerHTML=html;
 
   $('timelineTable').querySelectorAll('[data-id]').forEach(el=>{
-    el.addEventListener('click',()=>openEdit(el.dataset.id));
+    el.addEventListener('click',e=>{
+      e.stopPropagation();
+      openEdit(el.dataset.id);
+    });
+  });
+
+  $('timelineTable').querySelectorAll('.timeline-track').forEach(track=>{
+    track.addEventListener('click',e=>{
+      if(e.target.closest('[data-id]')) return;
+
+      const rect=track.getBoundingClientRect();
+      const x=Math.max(0,Math.min(rect.width,e.clientX-rect.left));
+      const rawMinutes=(x/rect.width)*480;
+      const slot=Math.min(450,Math.floor(rawMinutes/30)*30);
+      const total=600+slot;
+      const start=`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+
+      openNewAt(track.dataset.memberId,start);
+    });
   });
 }
 
