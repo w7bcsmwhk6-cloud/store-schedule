@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: timeline-tap-create-1 -->
+  <!-- version: timeline-drag-time-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -108,7 +108,9 @@
     .timeline-staff .small{margin-top:4px}
     .timeline-track{position:relative;min-height:84px;background:
       repeating-linear-gradient(to right,#fff 0,#fff calc(6.25% - 1px),#edf0f4 calc(6.25% - 1px),#edf0f4 6.25%)}
-    .timeline-event{position:absolute;top:10px;min-height:62px;border:1px solid;border-radius:9px;padding:7px 8px;font-size:11px;line-height:1.35;overflow:hidden;cursor:pointer;background:#fff}
+    .timeline-event{position:absolute;top:10px;min-height:62px;border:1px solid;border-radius:9px;padding:7px 8px;font-size:11px;line-height:1.35;overflow:hidden;cursor:grab;background:#fff;touch-action:none;user-select:none;-webkit-user-select:none}
+    .timeline-event.dragging{cursor:grabbing;z-index:5;box-shadow:0 7px 20px rgba(17,24,39,.22);opacity:.94}
+    .timeline-drag-note{font-size:11px;color:#6b7280;margin:-2px 0 10px}
     .timeline-event b{display:block;font-size:12px;margin-bottom:2px}
     .timeline-event .event-customer{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .timeline-dayoff{position:absolute;left:1.2%;right:1.2%;top:14px;min-height:54px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;border:1px solid}
@@ -208,7 +210,8 @@
         <strong class="grow" id="timelineDateTitle">1日のスケジュール</strong>
         <button id="timelineRefreshBtn" class="ghost">更新</button>
       </div>
-      <div class="small" style="margin-bottom:10px">10:00〜18:00・30分刻み（横にスクロールできます）</div>
+      <div class="small" style="margin-bottom:4px">10:00〜18:00・30分刻み（横にスクロールできます）</div>
+      <div class="timeline-drag-note">予定を左右にドラッグすると、30分刻みで時間を変更できます。</div>
       <div id="timelineTable" class="timeline-wrap"></div>
     </section>
 
@@ -706,6 +709,7 @@ function renderTimelineView(){
         const width=Math.max(6.25,((end-start)/480)*100);
         const c=colorOf(et);
         return `<div class="timeline-event" data-id="${esc(s.id)}"
+          data-start="${esc(timeText(s.start_time))}" data-end="${esc(timeText(s.end_time||''))}"
           style="left:${left}%;width:${width}%;border-color:${esc(c)};background:${esc(c)}18;color:#111827">
           <b>${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</b>
           <div>${esc(labelOf(et,'予定'))}${vehicle?' / '+esc(labelOf(vehicle)):''}</div>
@@ -726,7 +730,148 @@ function renderTimelineView(){
   html+='</div>';
   $('timelineTable').innerHTML=html;
 
-  $('timelineTable').querySelectorAll('[data-id]').forEach(el=>{
+  $('timelineTable').querySelectorAll('.timeline-event').forEach(el=>{
+    let drag=null;
+    let suppressClick=false;
+
+    el.addEventListener('pointerdown',e=>{
+      if(e.button!==undefined && e.button!==0) return;
+      const track=el.closest('.timeline-track');
+      if(!track) return;
+
+      const schedule=monthSchedules.find(s=>String(s.id)===String(el.dataset.id));
+      if(!schedule || isDayOffType(schedule.event_type_id)) return;
+
+      const start=minutesFromOpen(schedule.start_time);
+      const endRaw=schedule.end_time ? minutesFromOpen(schedule.end_time) : start+30;
+      const duration=Math.max(30,endRaw-start);
+
+      drag={
+        pointerId:e.pointerId,
+        startX:e.clientX,
+        startMinutes:start,
+        duration,
+        trackWidth:track.getBoundingClientRect().width,
+        moved:false,
+        newStart:start
+      };
+
+      el.setPointerCapture?.(e.pointerId);
+      el.classList.add('dragging');
+      e.stopPropagation();
+    });
+
+    el.addEventListener('pointermove',e=>{
+      if(!drag || e.pointerId!==drag.pointerId) return;
+
+      const dx=e.clientX-drag.startX;
+      if(Math.abs(dx)>5) drag.moved=true;
+      if(!drag.moved) return;
+
+      e.preventDefault();
+
+      const deltaMinutes=(dx/drag.trackWidth)*480;
+      let snapped=Math.round((drag.startMinutes+deltaMinutes)/30)*30;
+      snapped=Math.max(0,Math.min(480-drag.duration,snapped));
+
+      drag.newStart=snapped;
+      el.style.left=`${(snapped/480)*100}%`;
+
+      const startTotal=600+snapped;
+      const endTotal=startTotal+drag.duration;
+      const fmt=total=>`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+      const b=el.querySelector('b');
+      if(b) b.textContent=`${fmt(startTotal)} - ${fmt(endTotal)}`;
+    });
+
+    const finishDrag=async e=>{
+      if(!drag || e.pointerId!==drag.pointerId) return;
+
+      const d=drag;
+      drag=null;
+      el.classList.remove('dragging');
+      el.releasePointerCapture?.(e.pointerId);
+
+      if(!d.moved){
+        suppressClick=false;
+        return;
+      }
+
+      suppressClick=true;
+      setTimeout(()=>{suppressClick=false},350);
+
+      const schedule=monthSchedules.find(s=>String(s.id)===String(el.dataset.id));
+      if(!schedule) return;
+
+      const startTotal=600+d.newStart;
+      const endTotal=startTotal+d.duration;
+      const fmt=total=>`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`;
+
+      const newStart=fmt(startTotal);
+      const newEnd=fmt(endTotal);
+
+      if(newStart===timeText(schedule.start_time) && newEnd===timeText(schedule.end_time)){
+        renderTimelineView();
+        return;
+      }
+
+      const p={...schedule,start_time:newStart,end_time:newEnd};
+
+      const memberCheck=await hasMemberConflict(p,schedule.id);
+      if(memberCheck?.error){
+        alert('時間変更の確認中にエラーが発生しました。');
+        renderTimelineView();
+        return;
+      }
+      if(memberCheck?.conflict){
+        alert('その時間には担当者の別の予定があります。');
+        renderTimelineView();
+        return;
+      }
+
+      if(p.loaner_id){
+        const loanerCheck=await hasLoanerConflict(p,schedule.id);
+        if(loanerCheck?.error){
+          alert('代車の確認中にエラーが発生しました。');
+          renderTimelineView();
+          return;
+        }
+        if(loanerCheck?.conflict){
+          alert('その時間は選択中の代車が使用されています。');
+          renderTimelineView();
+          return;
+        }
+      }
+
+      const {error}=await sb.from('schedules')
+        .update({start_time:newStart,end_time:newEnd})
+        .eq('id',schedule.id);
+
+      if(error){
+        alert('時間変更を保存できませんでした：'+error.message);
+        renderTimelineView();
+        return;
+      }
+
+      await loadMonth();
+    };
+
+    el.addEventListener('pointerup',finishDrag);
+    el.addEventListener('pointercancel',e=>{
+      if(!drag || e.pointerId!==drag.pointerId) return;
+      drag=null;
+      el.classList.remove('dragging');
+      renderTimelineView();
+    });
+
+    el.addEventListener('click',e=>{
+      e.stopPropagation();
+      if(suppressClick) return;
+      openEdit(el.dataset.id);
+    });
+  });
+
+  $('timelineTable').querySelectorAll('.timeline-dayoff').forEach(el=>{
     el.addEventListener('click',e=>{
       e.stopPropagation();
       openEdit(el.dataset.id);
