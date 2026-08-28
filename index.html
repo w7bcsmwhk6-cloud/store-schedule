@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: timeline-pro-1 -->
+  <!-- version: settings-master-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -132,6 +132,14 @@
     .modal h2{margin:0 0 14px;font-size:20px}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}
+    .settings-btn{background:#f3f4f6;color:#374151}
+    .settings-section{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+    .settings-section:first-of-type{margin-top:0;padding-top:0;border-top:0}
+    .settings-title{font-weight:800;margin-bottom:9px}
+    .master-list{display:flex;flex-direction:column;gap:8px}
+    .master-row{display:grid;grid-template-columns:1fr auto auto;gap:7px;align-items:center}
+    .master-row input{padding:9px 10px}
+    .master-row button{padding:9px 10px;font-size:12px}
 
     @media(max-width:560px){
       .wrap{padding:12px 10px 94px}
@@ -164,7 +172,10 @@
         <h1>店舗スケジュール</h1>
         <div id="userLabel" class="small"></div>
       </div>
-      <button id="logoutBtn" class="ghost">ログアウト</button>
+      <div class="row">
+        <button id="settingsBtn" class="settings-btn">設定</button>
+        <button id="logoutBtn" class="ghost">ログアウト</button>
+      </div>
     </header>
 
     <section class="card month-card">
@@ -241,6 +252,34 @@
   </main>
 </div>
 
+<dialog id="settingsDialog">
+  <div class="modal">
+    <h2>設定</h2>
+    <div class="small">スタッフと代車の名前・数を変更できます。</div>
+
+    <div class="settings-section">
+      <div class="row" style="margin-bottom:9px">
+        <div class="settings-title grow">スタッフ</div>
+        <button id="addMemberBtn" type="button">＋ 追加</button>
+      </div>
+      <div id="memberSettingsList" class="master-list"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="row" style="margin-bottom:9px">
+        <div class="settings-title grow">代車</div>
+        <button id="addLoanerBtn" type="button">＋ 追加</button>
+      </div>
+      <div id="loanerSettingsList" class="master-list"></div>
+    </div>
+
+    <div id="settingsStatus" class="status"></div>
+    <div class="actions">
+      <button id="closeSettingsBtn" type="button" class="ghost">閉じる</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="scheduleDialog">
   <form id="scheduleForm" class="modal">
     <h2 id="dialogTitle">予定を追加</h2>
@@ -289,7 +328,7 @@ let visibleMonth = new Date(selectedDate + 'T00:00:00');
 visibleMonth.setDate(1);
 
 const $ = id => document.getElementById(id);
-const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog');
+const loginView=$('loginView'), appView=$('appView'), dialog=$('scheduleDialog'), settingsDialog=$('settingsDialog');
 
 function localDateISO(d=new Date()){
   const x=new Date(d.getTime()-d.getTimezoneOffset()*60000);
@@ -883,6 +922,85 @@ function goToday(){
   loadMonth();
 }
 
+function renderSettings(){
+  const makeRows=(arr,type)=>arr.map(x=>`<div class="master-row">
+    <input id="${type}Name${esc(x.id)}" value="${esc(labelOf(x))}" aria-label="名前">
+    <button type="button" class="secondary master-save" data-type="${type}" data-id="${esc(x.id)}">保存</button>
+    <button type="button" class="danger master-delete" data-type="${type}" data-id="${esc(x.id)}">削除</button>
+  </div>`).join('');
+
+  $('memberSettingsList').innerHTML=makeRows(masters.members,'member')||'<div class="small">スタッフなし</div>';
+  $('loanerSettingsList').innerHTML=makeRows(masters.loaners,'loaner')||'<div class="small">代車なし</div>';
+  $('settingsStatus').textContent='';
+
+  settingsDialog.querySelectorAll('.master-save').forEach(btn=>btn.addEventListener('click',()=>saveMaster(btn.dataset.type,btn.dataset.id)));
+  settingsDialog.querySelectorAll('.master-delete').forEach(btn=>btn.addEventListener('click',()=>deleteMaster(btn.dataset.type,btn.dataset.id)));
+}
+
+function openSettings(){
+  renderSettings();
+  settingsDialog.showModal();
+}
+
+async function addMaster(type){
+  const table=type==='member'?'members':'loaners';
+  const label=type==='member'?'新しいスタッフ':'新しい代車';
+  $('settingsStatus').textContent='追加中…';
+  const {error}=await sb.from(table).insert({name:label});
+  if(error){
+    $('settingsStatus').className='status error';
+    $('settingsStatus').textContent='追加できませんでした：'+error.message;
+    return;
+  }
+  await loadMasters();
+  renderSettings();
+  renderStaffView(); renderLoanerView(); renderTimelineView();
+}
+
+async function saveMaster(type,id){
+  const table=type==='member'?'members':'loaners';
+  const input=$(type+'Name'+id);
+  const name=input?.value.trim();
+  if(!name){alert('名前を入力してください。');return}
+  $('settingsStatus').className='status';
+  $('settingsStatus').textContent='保存中…';
+  const {error}=await sb.from(table).update({name}).eq('id',id);
+  if(error){
+    $('settingsStatus').className='status error';
+    $('settingsStatus').textContent='保存できませんでした：'+error.message;
+    return;
+  }
+  await loadMasters();
+  renderSettings();
+  renderCalendar(); renderSelectedDay(); renderStaffView(); renderLoanerView(); renderTimelineView();
+}
+
+async function deleteMaster(type,id){
+  const table=type==='member'?'members':'loaners';
+  const label=type==='member'?'スタッフ':'代車';
+  const col=type==='member'?'member_id':'loaner_id';
+  const row=findById(type==='member'?masters.members:masters.loaners,id);
+  const {count,error:countError}=await sb.from('schedules').select('id',{count:'exact',head:true}).eq(col,id);
+  if(countError){alert('使用状況を確認できませんでした。');return}
+
+  if(count>0){
+    alert(`${label}「${labelOf(row)}」は予定で${count}件使用されています。\n先に予定側を変更してから削除してください。`);
+    return;
+  }
+  if(!confirm(`${label}「${labelOf(row)}」を削除しますか？`))return;
+
+  $('settingsStatus').textContent='削除中…';
+  const {error}=await sb.from(table).delete().eq('id',id);
+  if(error){
+    $('settingsStatus').className='status error';
+    $('settingsStatus').textContent='削除できませんでした：'+error.message;
+    return;
+  }
+  await loadMasters();
+  renderSettings();
+  renderStaffView(); renderLoanerView(); renderTimelineView();
+}
+
 function openNew(){
   $('dialogTitle').textContent='予定を追加';
   $('scheduleId').value='';
@@ -1084,6 +1202,10 @@ async function deleteSchedule(){
 
 $('loginBtn').addEventListener('click',login);
 $('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+$('settingsBtn').addEventListener('click',openSettings);
+$('closeSettingsBtn').addEventListener('click',()=>settingsDialog.close());
+$('addMemberBtn').addEventListener('click',()=>addMaster('member'));
+$('addLoanerBtn').addEventListener('click',()=>addMaster('loaner'));
 $('logoutBtn').addEventListener('click',logout);
 $('prevMonthBtn').addEventListener('click',()=>changeMonth(-1));
 $('nextMonthBtn').addEventListener('click',()=>changeMonth(1));
