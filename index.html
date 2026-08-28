@@ -184,15 +184,16 @@
       <div class="field"><label>担当者</label><select id="memberId" required></select></div>
     </div>
 
-    <div class="grid2">
-      <div class="field"><label>開始</label><input id="startTime" type="time" required></div>
-      <div class="field"><label>終了</label><input id="endTime" type="time"></div>
+    <div class="field"><label>予定種類</label><select id="eventTypeId" required></select></div>
+
+    <div id="timeFields" class="grid2">
+      <div class="field"><label>開始</label><input id="startTime" type="time" step="1800" required></div>
+      <div class="field"><label>終了</label><input id="endTime" type="time" step="1800"></div>
     </div>
 
-    <div class="field"><label>予定種類</label><select id="eventTypeId" required></select></div>
-    <div class="field"><label>お客様名</label><input id="customerName" type="text" placeholder="任意"></div>
+    <div id="customerField" class="field"><label>お客様名</label><input id="customerName" type="text" placeholder="任意"></div>
 
-    <div class="grid2">
+    <div id="vehicleLoanerFields" class="grid2">
       <div class="field"><label>車種</label><select id="vehicleId"></select></div>
       <div class="field"><label>代車</label><select id="loanerId"></select></div>
     </div>
@@ -235,6 +236,30 @@ function timeText(v){ return v ? String(v).slice(0,5) : ''; }
 function esc(v=''){ return String(v).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
 function findById(arr,id){ return arr.find(x=>String(x.id)===String(id)); }
 function isoFromParts(y,m,d){ return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`; }
+
+function isDayOffType(id){
+  const et=findById(masters.event_types,id);
+  const name=labelOf(et);
+  return name==='公休' || name==='有給';
+}
+
+function updateDayOffFields(){
+  const dayOff=isDayOffType($('eventTypeId').value);
+
+  $('timeFields').classList.toggle('hidden',dayOff);
+  $('customerField').classList.toggle('hidden',dayOff);
+  $('vehicleLoanerFields').classList.toggle('hidden',dayOff);
+
+  $('startTime').required=!dayOff;
+
+  if(dayOff){
+    $('startTime').value='00:00';
+    $('endTime').value='23:59';
+    $('customerName').value='';
+    $('vehicleId').value='';
+    $('loanerId').value='';
+  }
+}
 
 async function boot(){
   const { data:{session} } = await sb.auth.getSession();
@@ -383,18 +408,27 @@ function renderSelectedDay(){
     const member=findById(masters.members,s.member_id);
     const vehicle=findById(masters.vehicles,s.vehicle_id);
     const loaner=findById(masters.loaners,s.loaner_id);
-    const meta=[
+    const dayOff=isDayOffType(s.event_type_id);
+
+    const meta=(dayOff ? [
+      labelOf(member) ? '担当：'+labelOf(member) : '',
+      s.memo ? 'メモ：'+s.memo : ''
+    ] : [
       labelOf(member) ? '担当：'+labelOf(member) : '',
       labelOf(vehicle) ? '車種：'+labelOf(vehicle) : '',
       labelOf(loaner) ? '代車：'+labelOf(loaner) : '',
       s.customer_name ? 'お客様：'+s.customer_name : '',
       s.memo ? 'メモ：'+s.memo : ''
-    ].filter(Boolean).map(esc).join('<br>');
+    ]).filter(Boolean).map(esc).join('<br>');
+
+    const timeHtml=dayOff
+      ? ''
+      : `<div class="time">${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</div>`;
 
     return `<article class="event" style="border-left-color:${esc(colorOf(et))}" data-id="${esc(s.id)}">
       <div class="event-top">
         <div>
-          <div class="time">${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</div>
+          ${timeHtml}
           <span class="badge">${esc(labelOf(et,'予定'))}</span>
         </div>
         <button class="ghost editBtn" type="button">編集</button>
@@ -421,6 +455,14 @@ function renderStaffView(){
     const body=items.length ? items.map(s=>{
       const et=findById(masters.event_types,s.event_type_id);
       const vehicle=findById(masters.vehicles,s.vehicle_id);
+      const dayOff=isDayOffType(s.event_type_id);
+
+      if(dayOff){
+        return `<div class="mini-event" style="border-left-color:${esc(colorOf(et))}">
+          <div class="mini-time">${esc(labelOf(et,'休み'))}</div>
+        </div>`;
+      }
+
       return `<div class="mini-event" style="border-left-color:${esc(colorOf(et))}">
         <div class="mini-time">${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</div>
         <div>${esc(labelOf(et,'予定'))}${vehicle?' / '+esc(labelOf(vehicle)):''}${s.customer_name?' / '+esc(s.customer_name):''}</div>
@@ -490,7 +532,9 @@ function openNew(){
   $('eventDate').value=selectedDate;
   $('startTime').value=''; $('endTime').value=''; $('memberId').value=''; $('eventTypeId').value='';
   $('customerName').value=''; $('vehicleId').value=''; $('loanerId').value=''; $('memo').value='';
-  $('deleteBtn').classList.add('hidden'); $('formStatus').textContent=''; dialog.showModal();
+  $('deleteBtn').classList.add('hidden'); $('formStatus').textContent='';
+  updateDayOffFields();
+  dialog.showModal();
 }
 function openEdit(id){
   const s=monthSchedules.find(x=>String(x.id)===String(id)); if(!s)return;
@@ -498,19 +542,23 @@ function openEdit(id){
   $('eventDate').value=s.event_date||''; $('startTime').value=timeText(s.start_time); $('endTime').value=timeText(s.end_time);
   $('memberId').value=s.member_id??''; $('eventTypeId').value=s.event_type_id??'';
   $('customerName').value=s.customer_name??''; $('vehicleId').value=s.vehicle_id??''; $('loanerId').value=s.loaner_id??''; $('memo').value=s.memo??'';
-  $('deleteBtn').classList.remove('hidden'); $('formStatus').textContent=''; dialog.showModal();
+  $('deleteBtn').classList.remove('hidden'); $('formStatus').textContent='';
+  updateDayOffFields();
+  dialog.showModal();
 }
 function payload(){
   const nullable=v=>v===''?null:v;
+  const dayOff=isDayOffType($('eventTypeId').value);
+
   return {
     event_date:$('eventDate').value,
-    start_time:$('startTime').value,
-    end_time:nullable($('endTime').value),
+    start_time:dayOff ? '00:00' : $('startTime').value,
+    end_time:dayOff ? '23:59' : nullable($('endTime').value),
     member_id:nullable($('memberId').value),
     event_type_id:nullable($('eventTypeId').value),
-    customer_name:nullable($('customerName').value.trim()),
-    vehicle_id:nullable($('vehicleId').value),
-    loaner_id:nullable($('loanerId').value),
+    customer_name:dayOff ? null : nullable($('customerName').value.trim()),
+    vehicle_id:dayOff ? null : nullable($('vehicleId').value),
+    loaner_id:dayOff ? null : nullable($('loanerId').value),
     memo:nullable($('memo').value.trim())
   };
 }
@@ -600,11 +648,24 @@ async function saveSchedule(ev){
     if(check?.conflict){
       const member=findById(masters.members,p.member_id);
       const eventType=findById(masters.event_types,check.conflict.event_type_id);
-      const detail=labelOf(eventType,'予定') + (check.conflict.customer_name ? ` / ${check.conflict.customer_name}` : '');
+      const conflictName=labelOf(eventType,'予定');
+      const newIsDayOff=isDayOffType(p.event_type_id);
+      const conflictIsDayOff=isDayOffType(check.conflict.event_type_id);
+
       $('saveBtn').disabled=false;
       $('formStatus').className='status error';
-      $('formStatus').textContent=
-        `${labelOf(member,'このスタッフ')}はこの時間に別の予定があります（${timeText(check.conflict.start_time)} - ${timeText(check.conflict.end_time)} / ${detail}）`;
+
+      if(conflictIsDayOff && !newIsDayOff){
+        $('formStatus').textContent=
+          `${labelOf(member,'このスタッフ')}はこの日「${conflictName}」です。`;
+      }else if(newIsDayOff && !conflictIsDayOff){
+        $('formStatus').textContent=
+          `${labelOf(member,'このスタッフ')}にはこの日の予定がすでに入っています。先に予定を確認してください。`;
+      }else{
+        const detail=conflictName + (check.conflict.customer_name ? ` / ${check.conflict.customer_name}` : '');
+        $('formStatus').textContent=
+          `${labelOf(member,'このスタッフ')}はこの時間に別の予定があります（${timeText(check.conflict.start_time)} - ${timeText(check.conflict.end_time)} / ${detail}）`;
+      }
       return;
     }
   }
@@ -650,6 +711,7 @@ $('addBtn').addEventListener('click',openNew);
 $('cancelBtn').addEventListener('click',()=>dialog.close());
 $('scheduleForm').addEventListener('submit',saveSchedule);
 $('deleteBtn').addEventListener('click',deleteSchedule);
+$('eventTypeId').addEventListener('change',updateDayOffFields);
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click',()=>switchView(tab.dataset.view));
 });
