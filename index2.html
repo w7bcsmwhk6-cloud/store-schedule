@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>店舗スケジュール</title>
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;
+  background:#f4f6f8;
+  color:#17202a;
+}
+header{
+  background:#fff;
+  padding:18px 16px;
+  border-bottom:1px solid #ddd;
+}
+h1{font-size:22px;margin:0}
+main{padding:16px;max-width:700px;margin:auto}
+
+.summary{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-bottom:18px;
+}
+.box{
+  background:#fff;
+  border-radius:14px;
+  padding:14px;
+  box-shadow:0 2px 8px #00000010;
+}
+.number{
+  font-size:26px;
+  font-weight:bold;
+  margin-top:5px;
+}
+
+h2{font-size:18px;margin:22px 0 10px}
+
+.schedule{
+  background:#fff;
+  border-radius:14px;
+  padding:14px;
+  margin-bottom:10px;
+  box-shadow:0 2px 8px #0000000d;
+}
+.time{font-weight:bold;font-size:17px}
+.badge{
+  display:inline-block;
+  padding:4px 9px;
+  border-radius:20px;
+  font-size:12px;
+  margin:7px 0;
+}
+.test{background:#dbeafe;color:#1d4ed8}
+.sales{background:#dcfce7;color:#15803d}
+.inspect{background:#fef3c7;color:#a16207}
+
+.detail{font-size:14px;color:#555;line-height:1.7}
+
+.loaners{
+  display:grid;
+  grid-template-columns:repeat(5,1fr);
+  gap:6px;
+}
+.loaner{
+  text-align:center;
+  background:#fff;
+  padding:10px 3px;
+  border-radius:10px;
+  font-size:12px;
+}
+.available{border-bottom:4px solid #22c55e}
+.busy{border-bottom:4px solid #ef4444}
+
+.add{
+  position:fixed;
+  right:20px;
+  bottom:24px;
+  width:58px;
+  height:58px;
+  border:0;
+  border-radius:50%;
+  background:#2563eb;
+  color:white;
+  font-size:32px;
+  box-shadow:0 5px 15px #0004;
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<h1>店舗スケジュール</h1>
+</header>
+
+<main>
+
+<div class="summary">
+<div class="box">
+<div>本日の予定</div>
+<div class="number">3</div>
+</div>
+
+<div class="box">
+<div>空き代車</div>
+<div class="number">3台</div>
+</div>
+</div>
+
+<h2>本日の予定</h2>
+
+<div class="schedule">
+<div class="time">10:00〜11:00</div>
+<span class="badge test">試乗</span>
+<div class="detail">
+担当：籾山<br>
+車種：RACCO<br>
+お客様：山田様<br>
+代車：なし
+</div>
+</div>
+
+<div class="schedule">
+<div class="time">13:00〜14:00</div>
+<span class="badge sales">商談</span>
+<div class="detail">
+担当：竹森<br>
+車種：SEALION 6<br>
+お客様：佐藤様
+</div>
+</div>
+
+<div class="schedule">
+<div class="time">15:00〜16:00</div>
+<span class="badge inspect">12ヶ月点検</span>
+<div class="detail">
+担当：安西<br>
+車種：ATTO 3<br>
+代車：代車2
+</div>
+</div>
+
+<h2>代車状況</h2>
+
+<div class="loaners">
+<div class="loaner available">代車1<br>空き</div>
+<div class="loaner busy">代車2<br>使用中</div>
+<div class="loaner available">代車3<br>空き</div>
+<div class="loaner busy">代車4<br>使用中</div>
+<div class="loaner available">代車5<br>空き</div>
+</div>
+
+</main>
+
+<button class="add">＋</button>
+
+</body>
+</html>
