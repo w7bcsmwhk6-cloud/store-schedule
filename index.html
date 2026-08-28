@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: business-hours-10-18-1 -->
+  <!-- version: timeline-day-view-1 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -81,7 +81,7 @@
     .badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:12px;font-weight:700}
     .meta{font-size:13px;color:var(--muted);margin-top:6px;line-height:1.6}
     .empty{text-align:center;color:var(--muted);padding:34px 12px}
-    .tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
+    .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
     .tab{background:#fff;color:#374151;border:1px solid var(--line);padding:11px 8px}
     .tab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
     .staff-grid,.loaner-grid{display:grid;gap:10px}
@@ -93,6 +93,26 @@
     .mini-time{font-weight:800}
     .available{color:#15803d;font-weight:800}
     .inuse{color:#b91c1c;font-weight:800}
+
+    .timeline-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:14px;background:#fff}
+    .timeline{min-width:1240px}
+    .timeline-head,.timeline-row{display:grid;grid-template-columns:110px 1fr}
+    .timeline-head{position:sticky;top:0;z-index:3;background:#fff;border-bottom:1px solid var(--line)}
+    .timeline-staff-head{padding:12px 10px;font-weight:800;border-right:1px solid var(--line)}
+    .timeline-scale{position:relative;height:48px}
+    .timeline-mark{position:absolute;top:0;height:48px;border-left:1px solid #dbe0e7;font-size:11px;font-weight:700;padding:9px 0 0 4px;white-space:nowrap;color:#374151}
+    .timeline-row{min-height:84px;border-bottom:1px solid var(--line)}
+    .timeline-row:last-child{border-bottom:0}
+    .timeline-staff{padding:12px 10px;border-right:1px solid var(--line);background:#fafafa}
+    .timeline-staff b{display:block;font-size:15px}
+    .timeline-staff .small{margin-top:4px}
+    .timeline-track{position:relative;min-height:84px;background:
+      repeating-linear-gradient(to right,#fff 0,#fff calc(6.25% - 1px),#edf0f4 calc(6.25% - 1px),#edf0f4 6.25%)}
+    .timeline-event{position:absolute;top:10px;min-height:62px;border:1px solid;border-radius:9px;padding:7px 8px;font-size:11px;line-height:1.35;overflow:hidden;cursor:pointer;background:#fff}
+    .timeline-event b{display:block;font-size:12px;margin-bottom:2px}
+    .timeline-event .event-customer{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .timeline-dayoff{position:absolute;left:1.2%;right:1.2%;top:14px;min-height:54px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;border:1px solid}
+    .timeline-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:12px}
     .fab{position:fixed;right:18px;bottom:22px;width:58px;height:58px;border-radius:50%;font-size:30px;line-height:1;background:var(--accent);box-shadow:0 10px 24px rgba(37,99,235,.35)}
     dialog{border:0;border-radius:20px;padding:0;width:min(94vw,560px);box-shadow:0 24px 70px rgba(0,0,0,.28)}
     dialog::backdrop{background:rgba(15,23,42,.48)}
@@ -106,6 +126,7 @@
       .stats{grid-template-columns:1fr 1fr}
       .stats .stat:last-child{grid-column:1/-1}
       .grid2{grid-template-columns:1fr}
+      .tab{font-size:12px;padding:10px 4px}
       h1{font-size:22px}
       .month-head{grid-template-columns:auto 1fr auto}
       .month-head #todayBtn{grid-column:1/-1}
@@ -157,6 +178,7 @@
       <button type="button" class="tab active" data-view="day">日別</button>
       <button type="button" class="tab" data-view="staff">スタッフ別</button>
       <button type="button" class="tab" data-view="loaner">代車</button>
+      <button type="button" class="tab" data-view="timeline">1日表</button>
     </section>
 
     <section id="dayView" class="card">
@@ -179,6 +201,15 @@
         <strong class="grow" id="loanerDateTitle">代車状況</strong>
       </div>
       <div id="loanerList" class="loaner-grid"></div>
+    </section>
+
+    <section id="timelineView" class="card hidden">
+      <div class="row" style="margin-bottom:10px">
+        <strong class="grow" id="timelineDateTitle">1日のスケジュール</strong>
+        <button id="timelineRefreshBtn" class="ghost">更新</button>
+      </div>
+      <div class="small" style="margin-bottom:10px">10:00〜18:00・30分刻み（横にスクロールできます）</div>
+      <div id="timelineTable" class="timeline-wrap"></div>
     </section>
 
     <button id="addBtn" class="fab" aria-label="予定を追加">＋</button>
@@ -354,6 +385,7 @@ async function loadMonth(){
   renderSelectedDay();
   renderStaffView();
   renderLoanerView();
+  renderTimelineView();
 }
 
 function renderCalendar(){
@@ -430,6 +462,7 @@ function renderCalendar(){
         renderSelectedDay();
         renderStaffView();
         renderLoanerView();
+        renderTimelineView();
       }
     });
   });
@@ -592,8 +625,100 @@ function renderLoanerView(){
   }).join('');
 }
 
+
+function minutesFromOpen(v){
+  if(!v) return 0;
+  const [h,m]=timeText(v).split(':').map(Number);
+  return (h*60+m) - 600;
+}
+
+function renderTimelineView(){
+  const schedules=selectedSchedules();
+  $('timelineDateTitle').textContent=selectedDate.replaceAll('-','/')+' 1日のスケジュール';
+
+  if(!masters.members.length){
+    $('timelineTable').innerHTML='<div class="empty">スタッフが登録されていません</div>';
+    return;
+  }
+
+  const marks=[];
+  for(let i=0;i<=16;i++){
+    const total=600+i*30;
+    const h=Math.floor(total/60);
+    const m=total%60;
+    const label=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    const left=(i/16)*100;
+    marks.push(`<span class="timeline-mark" style="left:${left}%">${label}</span>`);
+  }
+
+  let html=`<div class="timeline">
+    <div class="timeline-head">
+      <div class="timeline-staff-head">スタッフ</div>
+      <div class="timeline-scale">${marks.join('')}</div>
+    </div>`;
+
+  masters.members.forEach(member=>{
+    const items=schedules
+      .filter(s=>String(s.member_id)===String(member.id))
+      .sort((a,b)=>String(a.start_time||'00:00').localeCompare(String(b.start_time||'00:00')));
+
+    const normalItems=items.filter(isNormalSchedule);
+    const dayOffs=items.filter(s=>isDayOffType(s.event_type_id));
+
+    const status=dayOffs.length
+      ? dayOffs.map(s=>labelOf(findById(masters.event_types,s.event_type_id),'休み')).join('・')
+      : `${normalItems.length}件`;
+
+    let track='';
+
+    if(dayOffs.length){
+      const s=dayOffs[0];
+      const et=findById(masters.event_types,s.event_type_id);
+      const c=colorOf(et);
+      track=`<div class="timeline-dayoff" data-id="${esc(s.id)}"
+        style="border-color:${esc(c)};background:${esc(c)}18;color:${esc(c)}">
+        ${esc(labelOf(et,'休み'))}（終日）
+      </div>`;
+    }else if(!normalItems.length){
+      track='<div class="timeline-empty">予定なし</div>';
+    }else{
+      track=normalItems.map(s=>{
+        const et=findById(masters.event_types,s.event_type_id);
+        const vehicle=findById(masters.vehicles,s.vehicle_id);
+        const start=Math.max(0,Math.min(480,minutesFromOpen(s.start_time)));
+        const endRaw=s.end_time ? minutesFromOpen(s.end_time) : start+30;
+        const end=Math.max(start+30,Math.min(480,endRaw));
+        const left=(start/480)*100;
+        const width=Math.max(6.25,((end-start)/480)*100);
+        const c=colorOf(et);
+        return `<div class="timeline-event" data-id="${esc(s.id)}"
+          style="left:${left}%;width:${width}%;border-color:${esc(c)};background:${esc(c)}18;color:#111827">
+          <b>${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</b>
+          <div>${esc(labelOf(et,'予定'))}${vehicle?' / '+esc(labelOf(vehicle)):''}</div>
+          ${s.customer_name?`<div class="event-customer">${esc(s.customer_name)}</div>`:''}
+        </div>`;
+      }).join('');
+    }
+
+    html+=`<div class="timeline-row">
+      <div class="timeline-staff">
+        <b>${esc(labelOf(member,'スタッフ'))}</b>
+        <div class="small">${esc(status)}</div>
+      </div>
+      <div class="timeline-track">${track}</div>
+    </div>`;
+  });
+
+  html+='</div>';
+  $('timelineTable').innerHTML=html;
+
+  $('timelineTable').querySelectorAll('[data-id]').forEach(el=>{
+    el.addEventListener('click',()=>openEdit(el.dataset.id));
+  });
+}
+
 function switchView(view){
-  ['dayView','staffView','loanerView'].forEach(id=>$(id).classList.add('hidden'));
+  ['dayView','staffView','loanerView','timelineView'].forEach(id=>$(id).classList.add('hidden'));
   $(view+'View').classList.remove('hidden');
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===view));
 }
@@ -816,6 +941,7 @@ $('prevMonthBtn').addEventListener('click',()=>changeMonth(-1));
 $('nextMonthBtn').addEventListener('click',()=>changeMonth(1));
 $('todayBtn').addEventListener('click',goToday);
 $('refreshBtn').addEventListener('click',async()=>{await loadMasters();await loadMonth()});
+$('timelineRefreshBtn').addEventListener('click',async()=>{await loadMasters();await loadMonth()});
 $('addBtn').addEventListener('click',openNew);
 $('cancelBtn').addEventListener('click',()=>dialog.close());
 $('saveBtn').addEventListener('click',saveSchedule);
