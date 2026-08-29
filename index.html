@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
   <title>店舗スケジュール</title>
-  <!-- version: customer-vehicles-v2 -->
+  <!-- version: schedule-span-storeclosed-v3 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root{
@@ -178,6 +178,10 @@
     .history-section{margin-top:14px}
     .history-item{border:1px solid var(--line);border-radius:10px;padding:9px;margin-top:7px;font-size:12px}
     .customer-info-box{background:#f9fafb;border:1px solid var(--line);border-radius:10px;padding:9px;margin-top:8px;font-size:12px;white-space:pre-wrap}
+    .check-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin:8px 0 10px}
+    .check-label{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:700;color:#374151}
+    .check-label input[type="checkbox"]{width:auto;margin:0}
+    .store-closed-chip{background:#fee2e2!important;color:#991b1b!important;border-left-color:#dc2626!important;font-weight:900}
     .repeat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     @media print{
       body{background:#fff}
@@ -454,11 +458,18 @@
     <input type="hidden" id="scheduleId">
 
     <div class="grid2">
-      <div class="field"><label>日付</label><input id="eventDate" type="date" required></div>
-      <div class="field"><label>担当者</label><select id="memberId" required></select></div>
+      <div class="field"><label>開始日</label><input id="eventDate" type="date" required></div>
+      <div class="field"><label>終了日</label><input id="endDate" type="date" required></div>
     </div>
 
+    <div id="memberField" class="field"><label>担当者</label><select id="memberId"></select></div>
+
     <div class="field"><label>予定種類</label><select id="eventTypeId" required></select></div>
+
+    <div class="check-row">
+      <label class="check-label"><input id="allDay" type="checkbox"> 終日</label>
+      <label class="check-label"><input id="loanerOnly" type="checkbox"> 代車のみ</label>
+    </div>
 
     <div id="timeFields" class="grid2">
       <div class="field"><label>開始</label><select id="startTime" required></select></div>
@@ -551,33 +562,75 @@ function fillTimeSelects(){
   $('endTime').innerHTML='<option value="">終了時間を選択</option>'+options.join('');
 }
 
-function isDayOffType(id){
-  const et=findById(masters.event_types,id);
-  const name=labelOf(et).trim();
+function eventTypeName(id){
+  return labelOf(findById(masters.event_types,id)).trim();
+}
+function isLeaveType(id){
+  const name=eventTypeName(id);
   return name==='公休' || name==='有給';
 }
-
+function isStoreClosedType(id){
+  return eventTypeName(id)==='店休日';
+}
+function isDayOffType(id){
+  return isLeaveType(id) || isStoreClosedType(id);
+}
 function isNormalSchedule(s){
   return !isDayOffType(s.event_type_id);
 }
+function dateInSchedule(s,date){
+  const end=s.end_date||s.event_date;
+  return s.event_date<=date && end>=date;
+}
+function datesBetween(start,end){
+  const out=[], a=new Date(start+'T00:00:00'), b=new Date((end||start)+'T00:00:00');
+  for(let d=new Date(a); d<=b; d.setDate(d.getDate()+1)) out.push(localDateISO(d));
+  return out;
+}
+function effectiveTimes(s,date){
+  if(s.all_day || isDayOffType(s.event_type_id)) return {start:'00:00',end:'23:59'};
+  const endDate=s.end_date||s.event_date;
+  return {
+    start: date===s.event_date ? timeText(s.start_time||'00:00') : '00:00',
+    end: date===endDate ? timeText(s.end_time||'23:59') : '23:59'
+  };
+}
+function updateScheduleModeFields(){
+  const storeClosed=isStoreClosedType($('eventTypeId').value);
+  const leave=isLeaveType($('eventTypeId').value);
+  const loanerOnly=$('loanerOnly').checked;
+  if(storeClosed){
+    $('allDay').checked=true;
+    $('loanerOnly').checked=false;
+  }
+  if(leave) $('allDay').checked=true;
 
-function updateDayOffFields(){
-  const dayOff=isDayOffType($('eventTypeId').value);
+  const allDay=$('allDay').checked || leave || storeClosed;
+  $('timeFields').classList.toggle('hidden',allDay);
+  $('startTime').required=!allDay;
 
-  $('timeFields').classList.toggle('hidden',dayOff);
-  $('customerField').classList.toggle('hidden',dayOff);
-  $('vehicleLoanerFields').classList.toggle('hidden',dayOff);
+  $('memberField').classList.toggle('hidden',storeClosed || loanerOnly);
+  $('customerField').classList.toggle('hidden',storeClosed || leave);
+  $('vehicleLoanerFields').classList.toggle('hidden',storeClosed || leave);
 
-  $('startTime').required=!dayOff;
-
-  if(dayOff){
-    $('startTime').dataset.dayoff='1';
-    $('endTime').dataset.dayoff='1';
+  if(storeClosed){
+    $('memberId').value='';
+    $('customerId').value='';
     $('customerName').value='';
+    $('customerPhone').value='';
+    $('vehicleId').value='';
+    $('loanerId').value='';
+  }else if(leave){
+    $('customerId').value='';
+    $('customerName').value='';
+    $('customerPhone').value='';
     $('vehicleId').value='';
     $('loanerId').value='';
   }
+
+  if($('eventDate').value && !$('endDate').value) $('endDate').value=$('eventDate').value;
 }
+function updateDayOffFields(){ updateScheduleModeFields(); }
 
 async function boot(){
   const { data:{session} } = await sb.auth.getSession();
@@ -637,8 +690,8 @@ async function loadMonth(){
   const {start,end}=monthRange();
   const {data,error}=await sb.from('schedules')
     .select('*')
-    .gte('event_date',start)
     .lte('event_date',end)
+    .gte('end_date',start)
     .order('event_date',{ascending:true})
     .order('start_time',{ascending:true});
   if(error){
@@ -667,18 +720,23 @@ function renderCalendar(){
   const dayOffs={};
 
   monthSchedules.filter(isNormalSchedule).forEach(s=>{
-    counts[s.event_date]=(counts[s.event_date]||0)+1;
+    datesBetween(s.event_date,s.end_date||s.event_date).forEach(date=>{
+      counts[date]=(counts[date]||0)+1;
+    });
   });
 
   monthSchedules.forEach(s=>{
     if(isDayOffType(s.event_type_id)){
       const member=findById(masters.members,s.member_id);
       const et=findById(masters.event_types,s.event_type_id);
-      if(!dayOffs[s.event_date]) dayOffs[s.event_date]=[];
-      dayOffs[s.event_date].push({
-        member:labelOf(member,''),
-        type:labelOf(et,'休み'),
-        color:colorOf(et)
+      datesBetween(s.event_date,s.end_date||s.event_date).forEach(date=>{
+        if(!dayOffs[date]) dayOffs[date]=[];
+        dayOffs[date].push({
+          member:isStoreClosedType(s.event_type_id)?'':labelOf(member,''),
+          type:labelOf(et,'休み'),
+          color:isStoreClosedType(s.event_type_id)?'#dc2626':colorOf(et),
+          closed:isStoreClosedType(s.event_type_id)
+        });
       });
     }
   });
@@ -706,7 +764,7 @@ function renderCalendar(){
     const leaves=dayOffs[iso]||[];
     const leaveHtml=leaves.length
       ? `<span class="dayoff-list">${leaves.map(x=>
-          `<span class="dayoff-chip" style="border-left:3px solid ${esc(x.color)}">${esc(x.member)} ${esc(x.type)}</span>`
+          `<span class="dayoff-chip ${x.closed?'store-closed-chip':''}" style="border-left:3px solid ${esc(x.color)}">${esc((x.member?x.member+' ':'')+x.type)}</span>`
         ).join('')}</span>`
       : '';
 
@@ -736,7 +794,7 @@ function renderCalendar(){
 }
 
 function selectedSchedules(){
-  return monthSchedules.filter(s=>s.event_date===selectedDate);
+  return monthSchedules.filter(s=>dateInSchedule(s,selectedDate));
 }
 function renderSelectedDay(){
   const schedules=selectedSchedules();
@@ -778,9 +836,11 @@ function renderSelectedDay(){
       s.memo ? 'メモ：'+s.memo : ''
     ]).filter(Boolean).map(esc).join('<br>');
 
-    const timeHtml=dayOff
-      ? ''
-      : `<div class="time">${esc(timeText(s.start_time))}${s.end_time?' - '+esc(timeText(s.end_time)):''}</div>`;
+    const allDay=!!s.all_day || dayOff;
+    const multi=(s.end_date||s.event_date)!==s.event_date;
+    const timeHtml=allDay
+      ? `<div class="time">終日${multi?' / '+esc(s.event_date.replaceAll('-','/'))+' → '+esc((s.end_date||s.event_date).replaceAll('-','/')):''}</div>`
+      : `<div class="time">${multi?esc(s.event_date.replaceAll('-','/'))+' ':''}${esc(timeText(s.start_time))} → ${multi?esc((s.end_date||s.event_date).replaceAll('-','/'))+' ':''}${esc(timeText(s.end_time))}</div>`;
 
     return `<article class="event" style="border-left-color:${esc(colorOf(et))}" data-id="${esc(s.id)}">
       <div class="event-top">
@@ -990,12 +1050,13 @@ function renderTimelineView(){
         const et=findById(masters.event_types,s.event_type_id);
         const vehicle=findById(masters.vehicles,s.vehicle_id);
         const member=findById(masters.members,s.member_id);
-        const start=Math.max(0,Math.min(480,minutesFromOpen(s.start_time)));
-        const endRaw=s.end_time?minutesFromOpen(s.end_time):start+30;
+        const eff=effectiveTimes(s,selectedDate);
+        const start=Math.max(0,Math.min(480,minutesFromOpen(eff.start)));
+        const endRaw=eff.end?minutesFromOpen(eff.end):start+30;
         const end=Math.max(start+30,Math.min(480,endRaw));
         const left=(start/480)*100, width=Math.max(6.25,((end-start)/480)*100), c=colorOf(et);
         return `<div class="timeline-event" data-id="${esc(s.id)}" style="left:${left}%;width:${width}%;border-color:${esc(c)};background:${esc(c)}18;color:#111827">
-          <b>${esc(timeText(s.start_time))} - ${esc(timeText(s.end_time))}</b>
+          <b>${s.all_day?'終日':esc(effectiveTimes(s,selectedDate).start)+' - '+esc(effectiveTimes(s,selectedDate).end)}</b>
           <div>${esc(labelOf(et,'予定'))}${timelineMode==='loaner'&&member?' / '+esc(labelOf(member)):vehicle?' / '+esc(labelOf(vehicle)):''}</div>
           ${s.customer_name?`<div class="event-customer">${esc(s.customer_name)}</div>`:''}
           <span class="timeline-resize" title="時間の長さを変更"></span>
@@ -1199,7 +1260,8 @@ async function deleteMaster(type,id){
 function openNew(){
   $('dialogTitle').textContent='予定を追加';
   $('scheduleId').value='';
-  $('eventDate').value=selectedDate;
+  $('eventDate').value=selectedDate; $('endDate').value=selectedDate;
+  $('allDay').checked=false; $('loanerOnly').checked=false;
   $('startTime').value=''; $('endTime').value=''; $('memberId').value=''; $('eventTypeId').value='';
   $('customerId').value=''; $('customerName').value=''; $('customerPhone').value=''; $('selectedCustomerInfo').textContent=''; $('repeatType').value='none'; $('repeatCount').value='2'; $('repeatFields').classList.remove('hidden'); $('vehicleId').value=''; $('loanerId').value=''; $('memo').value='';
   $('deleteBtn').classList.add('hidden'); $('duplicateBtn').classList.add('hidden'); $('dateMoveBtns').classList.add('hidden'); $('formStatus').textContent=''; $('customerHistory').classList.add('hidden');
@@ -1209,7 +1271,9 @@ function openNew(){
 function openEdit(id){
   const s=monthSchedules.find(x=>String(x.id)===String(id)); if(!s)return;
   $('dialogTitle').textContent='予定を編集'; $('scheduleId').value=s.id;
-  $('eventDate').value=s.event_date||''; $('startTime').value=timeText(s.start_time); $('endTime').value=timeText(s.end_time);
+  $('eventDate').value=s.event_date||''; $('endDate').value=s.end_date||s.event_date||'';
+  $('allDay').checked=!!s.all_day; $('loanerOnly').checked=!!s.loaner_only;
+  $('startTime').value=timeText(s.start_time); $('endTime').value=timeText(s.end_time);
   $('memberId').value=s.member_id??''; $('eventTypeId').value=s.event_type_id??'';
   $('customerId').value=s.customer_id??''; $('customerName').value=s.customer_name??''; $('customerPhone').value=s.customer_phone??''; updateSelectedCustomerInfo(); $('repeatType').value='none'; $('repeatFields').classList.add('hidden'); $('vehicleId').value=s.vehicle_id??''; $('loanerId').value=s.loaner_id??''; $('memo').value=s.memo??'';
   $('deleteBtn').classList.remove('hidden'); $('duplicateBtn').classList.remove('hidden'); $('dateMoveBtns').classList.remove('hidden'); $('formStatus').textContent='';
@@ -1225,10 +1289,11 @@ async function duplicateSchedule(){
 async function moveScheduleDay(delta){
   const id=$('scheduleId').value;if(!id)return;
   const d=new Date($('eventDate').value+'T00:00:00');d.setDate(d.getDate()+delta);
-  const newDate=localDateISO(d), p=payload();p.event_date=newDate;
+  const e=new Date(($('endDate').value||$('eventDate').value)+'T00:00:00');e.setDate(e.getDate()+delta);
+  const newDate=localDateISO(d), newEndDate=localDateISO(e), p=payload();p.event_date=newDate;p.end_date=newEndDate;
   const mc=await hasMemberConflict(p,id);if(mc?.conflict){alert('移動先の日に担当者の予定があります。');return}
   if(p.loaner_id){const lc=await hasLoanerConflict(p,id);if(lc?.conflict){alert('移動先の日は代車が使用されています。');return}}
-  const {error}=await sb.from('schedules').update({event_date:newDate}).eq('id',id);
+  const {error}=await sb.from('schedules').update({event_date:newDate,end_date:newEndDate}).eq('id',id);
   if(error){alert('日付を変更できませんでした：'+error.message);return}
   selectedDate=newDate;visibleMonth=new Date(d.getFullYear(),d.getMonth(),1);dialog.close();await loadMonth();
 }
@@ -1324,7 +1389,7 @@ async function showCustomerHistory(){
 }
 function updateAvailability(){
   const box=$('availabilityInfo'); if(!box)return;
-  if(isDayOffType($('eventTypeId').value)){box.textContent='';return}
+  if(isDayOffType($('eventTypeId').value) || $('allDay').checked){box.textContent='';return}
   const member=$('memberId').value, loaner=$('loanerId').value, date=$('eventDate').value;
   if(!date){box.textContent='';return}
   const items=monthSchedules.filter(s=>s.event_date===date && isNormalSchedule(s));
@@ -1585,82 +1650,83 @@ function toggleStoreMode(){
 }
 function payload(){
   const nullable=v=>v===''?null:v;
-  const dayOff=isDayOffType($('eventTypeId').value);
+  const leave=isLeaveType($('eventTypeId').value);
+  const storeClosed=isStoreClosedType($('eventTypeId').value);
+  const loanerOnly=$('loanerOnly').checked && !leave && !storeClosed;
+  const allDay=$('allDay').checked || leave || storeClosed;
 
   return {
     event_date:$('eventDate').value,
-    start_time:dayOff ? '00:00' : $('startTime').value,
-    end_time:dayOff ? '23:59' : nullable($('endTime').value),
-    member_id:nullable($('memberId').value),
+    end_date:$('endDate').value||$('eventDate').value,
+    start_time:allDay ? '00:00' : $('startTime').value,
+    end_time:allDay ? '23:59' : nullable($('endTime').value),
+    all_day:allDay,
+    loaner_only:loanerOnly,
+    member_id:(storeClosed||loanerOnly) ? null : nullable($('memberId').value),
     event_type_id:nullable($('eventTypeId').value),
-    customer_id:dayOff ? null : nullable($('customerId').value),
-    customer_name:dayOff ? null : nullable($('customerName').value.trim()),
-    customer_phone:dayOff ? null : nullable($('customerPhone').value.trim()),
-    vehicle_id:dayOff ? null : nullable($('vehicleId').value),
-    loaner_id:dayOff ? null : nullable($('loanerId').value),
+    customer_id:(leave||storeClosed) ? null : nullable($('customerId').value),
+    customer_name:(leave||storeClosed) ? null : nullable($('customerName').value.trim()),
+    customer_phone:(leave||storeClosed) ? null : nullable($('customerPhone').value.trim()),
+    vehicle_id:(leave||storeClosed) ? null : nullable($('vehicleId').value),
+    loaner_id:(leave||storeClosed) ? null : nullable($('loanerId').value),
     memo:nullable($('memo').value.trim())
   };
 }
+function rangeDT(p){
+  return {
+    start:`${p.event_date}T${p.start_time||'00:00'}`,
+    end:`${p.end_date||p.event_date}T${p.end_time||'23:59'}`
+  };
+}
+function overlaps(a,b){ return a.start < b.end && a.end > b.start; }
+
 async function hasLoanerConflict(p,id){
-  if(!p.loaner_id || !p.event_date || !p.start_time) return null;
-
-  let q=sb.from('schedules')
-    .select('id,event_date,start_time,end_time,loaner_id')
-    .eq('event_date',p.event_date)
-    .eq('loaner_id',p.loaner_id);
-
-  const {data,error}=await q;
-  if(error) return {error};
-
-  const newStart=p.start_time;
-  const newEnd=p.end_time || '23:59';
-
+  if(!p.loaner_id || !p.event_date) return null;
+  const {data,error}=await sb.from('schedules')
+    .select('id,event_date,end_date,start_time,end_time,all_day,loaner_id')
+    .eq('loaner_id',p.loaner_id)
+    .lte('event_date',p.end_date||p.event_date)
+    .gte('end_date',p.event_date);
+  if(error)return {error};
+  const nr=rangeDT(p);
   const conflict=(data||[]).find(s=>{
-    if(id && String(s.id)===String(id)) return false;
-    const oldStart=s.start_time || '00:00';
-    const oldEnd=s.end_time || '23:59';
-    return newStart < oldEnd && newEnd > oldStart;
+    if(id&&String(s.id)===String(id))return false;
+    return overlaps(nr,rangeDT(s));
   });
-
   return {conflict};
 }
 
 async function hasVehicleConflict(p,id){
-  if(!p.vehicle_id || !p.event_date || !p.start_time) return null;
-  const {data,error}=await sb.from('schedules').select('id,start_time,end_time,vehicle_id,event_type_id')
-    .eq('event_date',p.event_date).eq('vehicle_id',p.vehicle_id);
-  if(error)return {error};
-  const et=labelOf(findById(masters.event_types,p.event_type_id));
+  if(!p.vehicle_id || !p.event_date) return null;
+  const et=eventTypeName(p.event_type_id);
   if(!et.includes('試乗')) return {conflict:null};
+  const {data,error}=await sb.from('schedules')
+    .select('id,event_date,end_date,start_time,end_time,all_day,vehicle_id,event_type_id')
+    .eq('vehicle_id',p.vehicle_id)
+    .lte('event_date',p.end_date||p.event_date)
+    .gte('end_date',p.event_date);
+  if(error)return {error};
+  const nr=rangeDT(p);
   const conflict=(data||[]).find(s=>{
     if(id&&String(s.id)===String(id))return false;
-    const otherType=labelOf(findById(masters.event_types,s.event_type_id));
-    return otherType.includes('試乗') && p.start_time<(s.end_time||'23:59') && (p.end_time||'23:59')>(s.start_time||'00:00');
+    return eventTypeName(s.event_type_id).includes('試乗') && overlaps(nr,rangeDT(s));
   });
   return {conflict};
 }
 
 async function hasMemberConflict(p,id){
-  if(!p.member_id || !p.event_date || !p.start_time) return null;
-
-  let q=sb.from('schedules')
-    .select('id,event_date,start_time,end_time,member_id,event_type_id,customer_name')
-    .eq('event_date',p.event_date)
-    .eq('member_id',p.member_id);
-
-  const {data,error}=await q;
-  if(error) return {error};
-
-  const newStart=p.start_time;
-  const newEnd=p.end_time || '23:59';
-
+  if(!p.member_id || !p.event_date) return null;
+  const {data,error}=await sb.from('schedules')
+    .select('id,event_date,end_date,start_time,end_time,all_day,member_id,event_type_id,customer_name')
+    .eq('member_id',p.member_id)
+    .lte('event_date',p.end_date||p.event_date)
+    .gte('end_date',p.event_date);
+  if(error)return {error};
+  const nr=rangeDT(p);
   const conflict=(data||[]).find(s=>{
-    if(id && String(s.id)===String(id)) return false;
-    const oldStart=s.start_time || '00:00';
-    const oldEnd=s.end_time || '23:59';
-    return newStart < oldEnd && newEnd > oldStart;
+    if(id&&String(s.id)===String(id))return false;
+    return overlaps(nr,rangeDT(s));
   });
-
   return {conflict};
 }
 
@@ -1673,6 +1739,8 @@ async function saveSchedule(ev){
   const id=$('scheduleId').value;
   const p=payload();
   const dayOff=isDayOffType(p.event_type_id);
+  const storeClosed=isStoreClosedType(p.event_type_id);
+  const loanerOnly=!!p.loaner_only;
   if(p.customer_id){
     const c=findById(masters.customers,p.customer_id);
     if(c){p.customer_name=c.name||p.customer_name;p.customer_phone=c.phone||p.customer_phone;}
@@ -1683,7 +1751,12 @@ async function saveSchedule(ev){
     $('formStatus').textContent='日付を選択してください。';
     return;
   }
-  if(!p.member_id){
+  if(!p.end_date || p.end_date<p.event_date){
+    $('formStatus').className='status error';
+    $('formStatus').textContent='終了日は開始日以降にしてください。';
+    return;
+  }
+  if(!p.member_id && !storeClosed && !loanerOnly){
     $('formStatus').className='status error';
     $('formStatus').textContent='担当者を選択してください。';
     return;
@@ -1693,9 +1766,19 @@ async function saveSchedule(ev){
     $('formStatus').textContent='予定種類を選択してください。';
     return;
   }
-  if(!dayOff && !p.start_time){
+  if(!p.all_day && !p.start_time){
     $('formStatus').className='status error';
     $('formStatus').textContent='開始時間を入力してください。';
+    return;
+  }
+  if(!p.all_day && p.event_date===p.end_date && p.end_time && p.end_time<=p.start_time){
+    $('formStatus').className='status error';
+    $('formStatus').textContent='終了時間は開始時間より後にしてください。';
+    return;
+  }
+  if(loanerOnly && !p.loaner_id){
+    $('formStatus').className='status error';
+    $('formStatus').textContent='「代車のみ」の場合は代車を選択してください。';
     return;
   }
 
@@ -1721,7 +1804,7 @@ async function saveSchedule(ev){
       $('saveBtn').disabled=false;
       $('formStatus').className='status error';
       $('formStatus').textContent=
-        `この時間は${labelOf(loaner,'この代車')}が使用中です（${timeText(check.conflict.start_time)} - ${timeText(check.conflict.end_time)}）`;
+        `この期間は${labelOf(loaner,'この代車')}が使用中です（${check.conflict.event_date.replaceAll('-','/')} ～ ${(check.conflict.end_date||check.conflict.event_date).replaceAll('-','/')}）`;
       return;
     }
   }
@@ -1767,10 +1850,10 @@ async function saveSchedule(ev){
   }else if($('repeatType').value!=='none'){
     const count=Number($('repeatCount').value||2), rows=[];
     for(let i=0;i<count;i++){
-      const row={...p}, d=new Date(p.event_date+'T00:00:00');
-      if($('repeatType').value==='weekly') d.setDate(d.getDate()+i*7);
-      else d.setMonth(d.getMonth()+i);
-      row.event_date=localDateISO(d); rows.push(row);
+      const row={...p}, d=new Date(p.event_date+'T00:00:00'), e=new Date((p.end_date||p.event_date)+'T00:00:00');
+      if($('repeatType').value==='weekly'){ d.setDate(d.getDate()+i*7); e.setDate(e.getDate()+i*7); }
+      else { d.setMonth(d.getMonth()+i); e.setMonth(e.getMonth()+i); }
+      row.event_date=localDateISO(d); row.end_date=localDateISO(e); rows.push(row);
     }
     res=await sb.from('schedules').insert(rows);
   }else{
@@ -1860,8 +1943,11 @@ $('prevDayMoveBtn').addEventListener('click',()=>moveScheduleDay(-1));
 $('nextDayMoveBtn').addEventListener('click',()=>moveScheduleDay(1));
 $('customerId').addEventListener('change',()=>{updateSelectedCustomerInfo();showCustomerHistory()});
 $('customerName').addEventListener('change',showCustomerHistory);
-['memberId','loanerId','eventDate','eventTypeId'].forEach(id=>$(id).addEventListener('change',updateAvailability));
-$('eventTypeId').addEventListener('change',updateDayOffFields);
+['memberId','loanerId','eventDate','endDate','eventTypeId'].forEach(id=>$(id).addEventListener('change',updateAvailability));
+$('eventDate').addEventListener('change',()=>{if(!$('endDate').value||$('endDate').value<$('eventDate').value)$('endDate').value=$('eventDate').value;});
+$('allDay').addEventListener('change',updateScheduleModeFields);
+$('loanerOnly').addEventListener('change',updateScheduleModeFields);
+$('eventTypeId').addEventListener('change',updateScheduleModeFields);
 document.querySelectorAll('.tab').forEach(tab=>{
   tab.addEventListener('click',()=>switchView(tab.dataset.view));
 });
